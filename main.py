@@ -1,9 +1,12 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from openpyxl import Workbook
+import datetime
 
 app = FastAPI()
 
-# 🔓 Allow Frontend เรียก API ได้
+# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -12,27 +15,56 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# 📦 Temporary storage (เก็บใน RAM)
+# Storage
 reports = []
 
-# 🔹 Test API
 @app.get("/")
 def root():
     return {"message": "LXT Backend Running"}
 
-# 🔹 รับข้อมูลจาก Frontend
 @app.post("/reports")
 def create_report(data: dict):
     reports.append(data)
-    return {
-        "status": "success",
-        "data_received": data
-    }
+    return {"status": "success"}
 
-# 🔹 ดูข้อมูลทั้งหมด
 @app.get("/reports")
 def get_reports():
     return {
         "total": len(reports),
         "data": reports
     }
+
+# 🔥 EXPORT EXCEL
+@app.get("/export")
+def export_excel():
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "LXT Report"
+
+    headers = [
+        "Project", "Site", "GPS",
+        "Work Type", "Description",
+        "Quantity", "Issues"
+    ]
+    ws.append(headers)
+
+    for r in reports:
+        ws.append([
+            r.get("project"),
+            r.get("site"),
+            r.get("gps"),
+            ", ".join(r.get("workTypes", [])),
+            r.get("description"),
+            r.get("quantity"),
+            r.get("issues"),
+        ])
+
+    filename = f"report_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    filepath = f"/tmp/{filename}"
+    wb.save(filepath)
+
+    return FileResponse(
+        path=filepath,
+        filename=filename,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
