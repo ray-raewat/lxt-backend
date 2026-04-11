@@ -1,16 +1,9 @@
 from fastapi import FastAPI
-
-app = FastAPI()
-
-@app.get("/")
-def root():
-    return {"message": "LXT Backend Running"}
-    from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
 
-# ✅ แก้ CORS
+# 🔓 Allow Frontend เรียก API ได้
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -19,13 +12,27 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# root
+# 📦 Temporary storage (เก็บใน RAM)
+reports = []
+
+# 🔹 Test API
 @app.get("/")
 def root():
     return {"message": "LXT Backend Running"}
 
-# ✅ เพิ่ม endpoint นี้
+# 🔹 รับข้อมูลจาก Frontend
 @app.post("/reports")
 def create_report(data: dict):
-    print("📥 New Report:", data)
-    return {"status": "success", "data": data}
+    reports.append(data)
+    return {
+        "status": "success",
+        "data_received": data
+    }
+
+# 🔹 ดูข้อมูลทั้งหมด
+@app.get("/reports")
+def get_reports():
+    return {
+        "total": len(reports),
+        "data": reports
+    }
