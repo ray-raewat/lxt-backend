@@ -317,7 +317,7 @@ function ReportsTab({ token, role }) {
         <span style={{fontWeight:700,fontSize:15,color:"#374151"}}>{reports.length} รายการ</span>
         <div style={{display:"flex",gap:8}}>
           <button onClick={load} style={S.btn("#6b7280")}>🔄 Refresh</button>
-          <button onClick={()=>window.open(`${API}/export?token=${token}`,"_blank")} disabled={!reports.length}
+          <button onClick={()=>window.open(`${API}/export?token=${encodeURIComponent(token)}`,"_blank")} disabled={!reports.length}
             style={{...S.btn(reports.length?"#16a34a":"#d1d5db"),cursor:reports.length?"pointer":"not-allowed"}}>📥 Excel</button>
         </div>
       </div>

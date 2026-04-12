@@ -44,6 +44,17 @@ def get_user(creds: HTTPAuthorizationCredentials = Depends(security)):
     except Exception:
         raise HTTPException(401, "Invalid token")
 
+def get_user_from_query(token: str = ""):
+    """Accept token as query param (for window.open downloads)."""
+    if not token:
+        raise HTTPException(401, "Not authenticated")
+    try:
+        return pyjwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGO])
+    except pyjwt.ExpiredSignatureError:
+        raise HTTPException(401, "Token expired")
+    except Exception:
+        raise HTTPException(401, "Invalid token")
+
 def admin_only(user=Depends(get_user)):
     if user.get("role") != "admin":
         raise HTTPException(403, "Admin access required")
@@ -288,7 +299,7 @@ body{{font-family:Arial,sans-serif;background:#f0f4f8;padding:20px;color:#111}}
 # ── Excel Export ──────────────────────────────────────────────────────────────
 
 @app.get("/export")
-def export_excel(user=Depends(get_user)):
+def export_excel(user=Depends(get_user_from_query)):
     r = requests.get(f"{SUPABASE_URL}/rest/v1/reports?order=date.asc,id.asc", headers=sb_headers())
     rows = r.json()
     wb = Workbook(); ws = wb.active; ws.title = "LXT Daily Report"
