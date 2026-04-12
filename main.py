@@ -4,7 +4,8 @@ from fastapi.responses import FileResponse
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 import datetime
-import sqlite3
+import psycopg2
+import psycopg2.extras
 import json
 import os
 
@@ -18,19 +19,18 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Use /data for Render persistent disk if available, otherwise /tmp
-DB_PATH = os.environ.get("DATABASE_PATH", "/tmp/lxt_reports.db")
+DATABASE_URL = os.environ.get("DATABASE_URL")
 
 def get_db():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
+    conn = psycopg2.connect(DATABASE_URL, sslmode="require")
     return conn
 
 def init_db():
     conn = get_db()
-    conn.execute("""
+    cur = conn.cursor()
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS reports (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             date TEXT,
             project TEXT,
             site TEXT,
@@ -39,10 +39,11 @@ def init_db():
             description TEXT,
             quantity TEXT,
             issues TEXT,
-            created_at TEXT DEFAULT (datetime('now'))
+            created_at TIMESTAMP DEFAULT NOW()
         )
     """)
     conn.commit()
+    cur.close()
     conn.close()
 
 init_db()
@@ -54,9 +55,10 @@ def root():
 @app.post("/reports")
 def create_report(data: dict):
     conn = get_db()
-    conn.execute("""
+    cur = conn.cursor()
+    cur.execute("""
         INSERT INTO reports (date, project, site, gps, work_types, description, quantity, issues)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
     """, (
         data.get("date", datetime.date.today().isoformat()),
         data.get("project", ""),
@@ -68,13 +70,17 @@ def create_report(data: dict):
         data.get("issues", ""),
     ))
     conn.commit()
+    cur.close()
     conn.close()
     return {"status": "success"}
 
 @app.get("/reports")
 def get_reports():
     conn = get_db()
-    rows = conn.execute("SELECT * FROM reports ORDER BY date DESC, id DESC").fetchall()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM reports ORDER BY date DESC, id DESC")
+    rows = cur.fetchall()
+    cur.close()
     conn.close()
     data = []
     for r in rows:
@@ -88,22 +94,26 @@ def get_reports():
             "description": r["description"],
             "quantity": r["quantity"],
             "issues": r["issues"],
-            "created_at": r["created_at"],
         })
     return {"total": len(data), "data": data}
 
 @app.delete("/reports")
 def clear_reports():
     conn = get_db()
-    conn.execute("DELETE FROM reports")
+    cur = conn.cursor()
+    cur.execute("DELETE FROM reports")
     conn.commit()
+    cur.close()
     conn.close()
     return {"status": "cleared"}
 
 @app.get("/export")
 def export_excel():
     conn = get_db()
-    rows = conn.execute("SELECT * FROM reports ORDER BY date ASC, id ASC").fetchall()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    cur.execute("SELECT * FROM reports ORDER BY date ASC, id ASC")
+    rows = cur.fetchall()
+    cur.close()
     conn.close()
 
     wb = Workbook()
