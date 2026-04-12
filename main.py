@@ -8,6 +8,7 @@ import psycopg2
 import psycopg2.extras
 import json
 import os
+from urllib.parse import urlparse, unquote
 
 app = FastAPI()
 
@@ -19,32 +20,44 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-DATABASE_URL = os.environ.get("DATABASE_URL")
+DATABASE_URL = os.environ.get("DATABASE_URL", "")
 
 def get_db():
-    conn = psycopg2.connect(DATABASE_URL, sslmode="require")
+    url = urlparse(DATABASE_URL)
+    conn = psycopg2.connect(
+        host=url.hostname,
+        port=url.port or 5432,
+        user=url.username,
+        password=unquote(url.password or ""),
+        dbname=url.path.lstrip("/"),
+        sslmode="require",
+    )
     return conn
 
 def init_db():
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS reports (
-            id SERIAL PRIMARY KEY,
-            date TEXT,
-            project TEXT,
-            site TEXT,
-            gps TEXT,
-            work_types TEXT,
-            description TEXT,
-            quantity TEXT,
-            issues TEXT,
-            created_at TIMESTAMP DEFAULT NOW()
-        )
-    """)
-    conn.commit()
-    cur.close()
-    conn.close()
+    try:
+        conn = get_db()
+        cur = conn.cursor()
+        cur.execute("""
+            CREATE TABLE IF NOT EXISTS reports (
+                id SERIAL PRIMARY KEY,
+                date TEXT,
+                project TEXT,
+                site TEXT,
+                gps TEXT,
+                work_types TEXT,
+                description TEXT,
+                quantity TEXT,
+                issues TEXT,
+                created_at TIMESTAMP DEFAULT NOW()
+            )
+        """)
+        conn.commit()
+        cur.close()
+        conn.close()
+        print("✅ Database connected and table ready.")
+    except Exception as e:
+        print(f"⚠️ DB init error (will retry on first request): {e}")
 
 init_db()
 
