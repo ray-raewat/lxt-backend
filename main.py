@@ -4,11 +4,9 @@ from fastapi.responses import FileResponse
 from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill, Alignment
 import datetime
-import psycopg2
-import psycopg2.extras
 import json
 import os
-from urllib.parse import urlparse, unquote
+import requests
 
 app = FastAPI()
 
@@ -20,46 +18,16 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "")
+SUPABASE_URL = "https://woicdagfrkmtxhmqteyy.supabase.co"
+SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 
-def get_db():
-    url = urlparse(DATABASE_URL)
-    conn = psycopg2.connect(
-        host=url.hostname,
-        port=url.port or 5432,
-        user=url.username,
-        password=unquote(url.password or ""),
-        dbname=url.path.lstrip("/"),
-        sslmode="require",
-    )
-    return conn
-
-def init_db():
-    try:
-        conn = get_db()
-        cur = conn.cursor()
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS reports (
-                id SERIAL PRIMARY KEY,
-                date TEXT,
-                project TEXT,
-                site TEXT,
-                gps TEXT,
-                work_types TEXT,
-                description TEXT,
-                quantity TEXT,
-                issues TEXT,
-                created_at TIMESTAMP DEFAULT NOW()
-            )
-        """)
-        conn.commit()
-        cur.close()
-        conn.close()
-        print("✅ Database connected and table ready.")
-    except Exception as e:
-        print(f"⚠️ DB init error (will retry on first request): {e}")
-
-init_db()
+def sb_headers():
+    return {
+        "apikey": SUPABASE_KEY,
+        "Authorization": f"Bearer {SUPABASE_KEY}",
+        "Content-Type": "application/json",
+        "Prefer": "return=representation",
+    }
 
 @app.get("/")
 def root():
@@ -68,116 +36,93 @@ def root():
 @app.get("/health")
 def health():
     try:
-        conn = get_db()
-        conn.close()
-        return {"db": "connected", "url_host": urlparse(DATABASE_URL).hostname}
+        r = requests.get(f"{SUPABASE_URL}/rest/v1/reports?limit=1", headers=sb_headers(), timeout=10)
+        return {"db": "connected", "status": r.status_code}
     except Exception as e:
-        return {"db": "error", "detail": str(e), "url_set": bool(DATABASE_URL)}
+        return {"db": "error", "detail": str(e)}
 
 @app.post("/reports")
 def create_report(data: dict):
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("""
-        INSERT INTO reports (date, project, site, gps, work_types, description, quantity, issues)
-        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-    """, (
-        data.get("date", datetime.date.today().isoformat()),
-        data.get("project", ""),
-        data.get("site", ""),
-        data.get("gps", ""),
-        json.dumps(data.get("workTypes", [])),
-        data.get("description", ""),
-        data.get("quantity", ""),
-        data.get("issues", ""),
-    ))
-    conn.commit()
-    cur.close()
-    conn.close()
-    return {"status": "success"}
+    payload = {
+        "date": data.get("date", datetime.date.today().isoformat()),
+        "project": data.get("project", ""),
+        "site": data.get("site", ""),
+        "gps": data.get("gps", ""),
+        "work_types": json.dumps(data.get("workTypes", [])),
+        "description": data.get("description", ""),
+        "quantity": data.get("quantity", ""),
+        "issues": data.get("issues", ""),
+    }
+    r = requests.post(f"{SUPABASE_URL}/rest/v1/reports", headers=sb_headers(), json=payload)
+    if r.status_code in (200, 201):
+        return {"status": "success"}
+    return {"status": "error", "detail": r.text}
 
 @app.get("/reports")
 def get_reports():
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT * FROM reports ORDER BY date DESC, id DESC")
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
+    r = requests.get(
+        f"{SUPABASE_URL}/rest/v1/reports?order=date.desc,id.desc",
+        headers={**sb_headers(), "Prefer": "count=exact"},
+    )
+    rows = r.json()
     data = []
-    for r in rows:
+    for row in rows:
         data.append({
-            "id": r["id"],
-            "date": r["date"],
-            "project": r["project"],
-            "site": r["site"],
-            "gps": r["gps"],
-            "workTypes": json.loads(r["work_types"] or "[]"),
-            "description": r["description"],
-            "quantity": r["quantity"],
-            "issues": r["issues"],
+            "id": row["id"],
+            "date": row["date"],
+            "project": row["project"],
+            "site": row["site"],
+            "gps": row["gps"],
+            "workTypes": json.loads(row["work_types"] or "[]"),
+            "description": row["description"],
+            "quantity": row["quantity"],
+            "issues": row["issues"],
         })
     return {"total": len(data), "data": data}
 
 @app.delete("/reports")
 def clear_reports():
-    conn = get_db()
-    cur = conn.cursor()
-    cur.execute("DELETE FROM reports")
-    conn.commit()
-    cur.close()
-    conn.close()
+    requests.delete(f"{SUPABASE_URL}/rest/v1/reports?id=gte.0", headers=sb_headers())
     return {"status": "cleared"}
 
 @app.get("/stats")
 def get_stats():
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+    r = requests.get(f"{SUPABASE_URL}/rest/v1/reports?order=date.asc", headers=sb_headers())
+    rows = r.json()
 
     today = datetime.date.today().isoformat()
     week_start = (datetime.date.today() - datetime.timedelta(days=6)).isoformat()
     month_start = datetime.date.today().replace(day=1).isoformat()
 
-    cur.execute("SELECT COUNT(*) as count FROM reports")
-    total = cur.fetchone()["count"]
+    total = len(rows)
+    today_count = sum(1 for row in rows if row.get("date") == today)
+    week_count = sum(1 for row in rows if row.get("date", "") >= week_start)
+    month_count = sum(1 for row in rows if row.get("date", "") >= month_start)
 
-    cur.execute("SELECT COUNT(*) as count FROM reports WHERE date = %s", (today,))
-    today_count = cur.fetchone()["count"]
-
-    cur.execute("SELECT COUNT(*) as count FROM reports WHERE date >= %s", (week_start,))
-    week_count = cur.fetchone()["count"]
-
-    cur.execute("SELECT COUNT(*) as count FROM reports WHERE date >= %s", (month_start,))
-    month_count = cur.fetchone()["count"]
-
-    cur.execute("SELECT work_types FROM reports")
-    rows = cur.fetchall()
     work_type_counts = {}
-    for r in rows:
-        for t in json.loads(r["work_types"] or "[]"):
+    for row in rows:
+        for t in json.loads(row.get("work_types") or "[]"):
             work_type_counts[t] = work_type_counts.get(t, 0) + 1
 
     thirty_days_ago = (datetime.date.today() - datetime.timedelta(days=29)).isoformat()
-    cur.execute("""
-        SELECT date, COUNT(*) as count FROM reports
-        WHERE date >= %s GROUP BY date ORDER BY date
-    """, (thirty_days_ago,))
-    daily = [{"date": r["date"], "count": r["count"]} for r in cur.fetchall()]
+    daily_map = {}
+    for row in rows:
+        d = row.get("date", "")
+        if d >= thirty_days_ago:
+            daily_map[d] = daily_map.get(d, 0) + 1
+    daily = [{"date": k, "count": v} for k, v in sorted(daily_map.items())]
 
-    cur.execute("""
-        SELECT project, COUNT(*) as count FROM reports
-        GROUP BY project ORDER BY count DESC LIMIT 10
-    """)
-    by_project = [{"project": r["project"], "count": r["count"]} for r in cur.fetchall()]
+    project_map = {}
+    for row in rows:
+        p = row.get("project", "")
+        project_map[p] = project_map.get(p, 0) + 1
+    by_project = sorted([{"project": k, "count": v} for k, v in project_map.items()], key=lambda x: -x["count"])[:10]
 
-    cur.execute("""
-        SELECT site, COUNT(*) as count FROM reports
-        GROUP BY site ORDER BY count DESC LIMIT 10
-    """)
-    by_site = [{"site": r["site"], "count": r["count"]} for r in cur.fetchall()]
-
-    cur.close()
-    conn.close()
+    site_map = {}
+    for row in rows:
+        s = row.get("site", "")
+        site_map[s] = site_map.get(s, 0) + 1
+    by_site = sorted([{"site": k, "count": v} for k, v in site_map.items()], key=lambda x: -x["count"])[:10]
 
     return {
         "total": total,
@@ -192,19 +137,14 @@ def get_stats():
 
 @app.get("/export")
 def export_excel():
-    conn = get_db()
-    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-    cur.execute("SELECT * FROM reports ORDER BY date ASC, id ASC")
-    rows = cur.fetchall()
-    cur.close()
-    conn.close()
+    r = requests.get(f"{SUPABASE_URL}/rest/v1/reports?order=date.asc,id.asc", headers=sb_headers())
+    rows = r.json()
 
     wb = Workbook()
     ws = wb.active
     ws.title = "LXT Daily Report"
 
     headers = ["Date", "Project", "Site", "GPS", "Work Type", "Description", "Quantity", "Issues"]
-
     header_fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
     header_font = Font(color="FFFFFF", bold=True, size=11)
 
@@ -218,16 +158,16 @@ def export_excel():
     for i, width in enumerate(col_widths, 1):
         ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = width
 
-    for r in rows:
+    for row in rows:
         ws.append([
-            r["date"],
-            r["project"],
-            r["site"],
-            r["gps"],
-            ", ".join(json.loads(r["work_types"] or "[]")),
-            r["description"],
-            r["quantity"],
-            r["issues"],
+            row.get("date", ""),
+            row.get("project", ""),
+            row.get("site", ""),
+            row.get("gps", ""),
+            ", ".join(json.loads(row.get("work_types") or "[]")),
+            row.get("description", ""),
+            row.get("quantity", ""),
+            row.get("issues", ""),
         ])
 
     ws.freeze_panes = "A2"
