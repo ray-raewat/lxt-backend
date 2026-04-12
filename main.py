@@ -107,6 +107,67 @@ def clear_reports():
     conn.close()
     return {"status": "cleared"}
 
+@app.get("/stats")
+def get_stats():
+    conn = get_db()
+    cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
+
+    today = datetime.date.today().isoformat()
+    week_start = (datetime.date.today() - datetime.timedelta(days=6)).isoformat()
+    month_start = datetime.date.today().replace(day=1).isoformat()
+
+    cur.execute("SELECT COUNT(*) as count FROM reports")
+    total = cur.fetchone()["count"]
+
+    cur.execute("SELECT COUNT(*) as count FROM reports WHERE date = %s", (today,))
+    today_count = cur.fetchone()["count"]
+
+    cur.execute("SELECT COUNT(*) as count FROM reports WHERE date >= %s", (week_start,))
+    week_count = cur.fetchone()["count"]
+
+    cur.execute("SELECT COUNT(*) as count FROM reports WHERE date >= %s", (month_start,))
+    month_count = cur.fetchone()["count"]
+
+    cur.execute("SELECT work_types FROM reports")
+    rows = cur.fetchall()
+    work_type_counts = {}
+    for r in rows:
+        for t in json.loads(r["work_types"] or "[]"):
+            work_type_counts[t] = work_type_counts.get(t, 0) + 1
+
+    thirty_days_ago = (datetime.date.today() - datetime.timedelta(days=29)).isoformat()
+    cur.execute("""
+        SELECT date, COUNT(*) as count FROM reports
+        WHERE date >= %s GROUP BY date ORDER BY date
+    """, (thirty_days_ago,))
+    daily = [{"date": r["date"], "count": r["count"]} for r in cur.fetchall()]
+
+    cur.execute("""
+        SELECT project, COUNT(*) as count FROM reports
+        GROUP BY project ORDER BY count DESC LIMIT 10
+    """)
+    by_project = [{"project": r["project"], "count": r["count"]} for r in cur.fetchall()]
+
+    cur.execute("""
+        SELECT site, COUNT(*) as count FROM reports
+        GROUP BY site ORDER BY count DESC LIMIT 10
+    """)
+    by_site = [{"site": r["site"], "count": r["count"]} for r in cur.fetchall()]
+
+    cur.close()
+    conn.close()
+
+    return {
+        "total": total,
+        "today": today_count,
+        "this_week": week_count,
+        "this_month": month_count,
+        "by_work_type": [{"name": k, "count": v} for k, v in sorted(work_type_counts.items(), key=lambda x: -x[1])],
+        "daily": daily,
+        "by_project": by_project,
+        "by_site": by_site,
+    }
+
 @app.get("/export")
 def export_excel():
     conn = get_db()
