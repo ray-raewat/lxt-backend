@@ -65,6 +65,15 @@ init_db()
 def root():
     return {"message": "LXT Backend Running"}
 
+@app.get("/health")
+def health():
+    try:
+        conn = get_db()
+        conn.close()
+        return {"db": "connected", "url_host": urlparse(DATABASE_URL).hostname}
+    except Exception as e:
+        return {"db": "error", "detail": str(e), "url_set": bool(DATABASE_URL)}
+
 @app.post("/reports")
 def create_report(data: dict):
     conn = get_db()
