@@ -2,11 +2,11 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from openpyxl import Workbook
+from openpyxl.styles import Font, PatternFill, Alignment
 import datetime
 
 app = FastAPI()
 
-# CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -15,7 +15,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Storage
 reports = []
 
 @app.get("/")
@@ -24,6 +23,8 @@ def root():
 
 @app.post("/reports")
 def create_report(data: dict):
+    if "date" not in data:
+        data["date"] = datetime.date.today().isoformat()
     reports.append(data)
     return {"status": "success"}
 
@@ -34,32 +35,55 @@ def get_reports():
         "data": reports
     }
 
-# 🔥 EXPORT EXCEL
+@app.delete("/reports")
+def clear_reports():
+    reports.clear()
+    return {"status": "cleared"}
+
 @app.get("/export")
 def export_excel():
     wb = Workbook()
     ws = wb.active
-    ws.title = "LXT Report"
+    ws.title = "LXT Daily Report"
 
     headers = [
-        "Project", "Site", "GPS",
+        "Date", "Project", "Site", "GPS",
         "Work Type", "Description",
         "Quantity", "Issues"
     ]
-    ws.append(headers)
 
+    # Header style
+    header_fill = PatternFill(start_color="1F4E79", end_color="1F4E79", fill_type="solid")
+    header_font = Font(color="FFFFFF", bold=True, size=11)
+
+    ws.append(headers)
+    for col, cell in enumerate(ws[1], 1):
+        cell.fill = header_fill
+        cell.font = header_font
+        cell.alignment = Alignment(horizontal="center", vertical="center")
+
+    # Column widths
+    col_widths = [12, 25, 15, 20, 20, 40, 15, 30]
+    for i, width in enumerate(col_widths, 1):
+        ws.column_dimensions[ws.cell(row=1, column=i).column_letter].width = width
+
+    # Data rows
     for r in reports:
         ws.append([
-            r.get("project"),
-            r.get("site"),
-            r.get("gps"),
+            r.get("date", ""),
+            r.get("project", ""),
+            r.get("site", ""),
+            r.get("gps", ""),
             ", ".join(r.get("workTypes", [])),
-            r.get("description"),
-            r.get("quantity"),
-            r.get("issues"),
+            r.get("description", ""),
+            r.get("quantity", ""),
+            r.get("issues", ""),
         ])
 
-    filename = f"report_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+    # Freeze header row
+    ws.freeze_panes = "A2"
+
+    filename = f"LXT_Report_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
     filepath = f"/tmp/{filename}"
     wb.save(filepath)
 
