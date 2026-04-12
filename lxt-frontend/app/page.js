@@ -12,6 +12,7 @@ const WORK_TYPE_OPTIONS = [
   "Testing & Commissioning",
   "Survey / Setting Out",
   "Backfilling & Reinstatement",
+  "Manhole",
   "Others",
 ];
 
