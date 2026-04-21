@@ -13,7 +13,7 @@ SUPABASE_URL = "https://woicdagfrkmtxhmqteyy.supabase.co"
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
 JWT_SECRET   = os.environ.get("JWT_SECRET", "lxt-dev-secret")
 JWT_ALGO     = "HS256"
-JWT_HOURS    = 10
+JWT_HOURS    = 168  # 7 days
 
 security = HTTPBearer(auto_error=False)
 

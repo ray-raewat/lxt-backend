@@ -37,13 +37,20 @@ async function compress(file, maxW=1200, q=0.75) {
 }
 
 /* ── API call helper ── */
-function useApi(token) {
+function useApi(token, onExpired) {
   const call = useCallback(async (path, opts={}) => {
     const headers = { Authorization: `Bearer ${token}`, ...(opts.headers||{}) };
     if (!(opts.body instanceof FormData)) headers["Content-Type"] = "application/json";
     const r = await fetch(`${API}${path}`, { ...opts, headers });
+    if (r.status === 401) {
+      // Token expired or invalid — force re-login
+      const detail = await r.clone().json().then(d=>d.detail).catch(()=>"Session expired");
+      alert("⚠️ " + detail + "\nกรุณา Login ใหม่อีกครั้ง");
+      if (onExpired) onExpired();
+      throw new Error("session_expired");
+    }
     return r;
-  }, [token]);
+  }, [token, onExpired]);
   return call;
 }
 
@@ -147,8 +154,8 @@ function LoginScreen({ onLogin }) {
 }
 
 /* ── Submit Tab ── */
-function SubmitTab({ token }) {
-  const api = useApi(token);
+function SubmitTab({ token, onExpired }) {
+  const api = useApi(token, onExpired);
   const [form, setForm] = useState({ date:TODAY,project:"",site:"",gps:"",workTypes:[],description:"",quantity:"",issues:"" });
   const [teamImages,    setTeamImages]    = useState([]);
   const [equipImages,   setEquipImages]   = useState([]);
@@ -167,8 +174,11 @@ function SubmitTab({ token }) {
         alert("✅ ส่งรายงานสำเร็จ");
         setForm({date:TODAY,project:"",site:"",gps:"",workTypes:[],description:"",quantity:"",issues:""});
         setTeamImages([]); setEquipImages([]); setMaterialImages([]); setAreaImages([]);
-      } else alert("❌ ส่งไม่สำเร็จ");
-    } catch(e) { alert("❌ "+e.message); }
+      } else {
+        const err = await r.json().catch(()=>({}));
+        alert("❌ ส่งไม่สำเร็จ\n" + (err.detail || `Server error: ${r.status}`));
+      }
+    } catch(e) { if (e.message !== "session_expired") alert("❌ "+e.message); }
     setLoading(false);
   };
 
@@ -211,10 +221,10 @@ function SubmitTab({ token }) {
 }
 
 /* ── Dashboard Tab ── */
-function DashboardTab({ token }) {
+function DashboardTab({ token, onExpired }) {
   const [stats, setStats] = useState(null);
   const [loading, setLoading] = useState(true);
-  const api = useApi(token);
+  const api = useApi(token, onExpired);
 
   useEffect(()=>{
     api("/stats").then(r=>r.json()).then(d=>{setStats(d);setLoading(false);}).catch(()=>setLoading(false));
@@ -290,8 +300,8 @@ function DashboardTab({ token }) {
 }
 
 /* ── Reports Tab ── */
-function ReportsTab({ token, role }) {
-  const api = useApi(token);
+function ReportsTab({ token, role, onExpired }) {
+  const api = useApi(token, onExpired);
   const [reports, setReports] = useState([]);
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState(null);
@@ -368,8 +378,8 @@ function ReportsTab({ token, role }) {
 }
 
 /* ── Admin Tab ── */
-function AdminTab({ token }) {
-  const api = useApi(token);
+function AdminTab({ token, onExpired }) {
+  const api = useApi(token, onExpired);
   const [users, setUsers] = useState([]);
   const [form, setForm] = useState({ username:"",password:"",full_name:"",role:"user" });
   const [editing, setEditing] = useState(null);
@@ -531,10 +541,10 @@ export default function Home() {
           ))}
         </div>
         <div style={{padding:"20px 24px 24px"}}>
-          {tab==="submit"    && <SubmitTab    token={auth.token}/>}
-          {tab==="dashboard" && <DashboardTab token={auth.token}/>}
-          {tab==="view"      && <ReportsTab   token={auth.token} role={auth.role}/>}
-          {tab==="admin"     && <AdminTab     token={auth.token}/>}
+          {tab==="submit"    && <SubmitTab    token={auth.token} onExpired={logout}/>}
+          {tab==="dashboard" && <DashboardTab token={auth.token} onExpired={logout}/>}
+          {tab==="view"      && <ReportsTab   token={auth.token} role={auth.role} onExpired={logout}/>}
+          {tab==="admin"     && <AdminTab     token={auth.token} onExpired={logout}/>}
         </div>
       </div>
     </div>
