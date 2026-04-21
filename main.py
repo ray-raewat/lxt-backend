@@ -9,11 +9,14 @@ import datetime, json, os, requests, bcrypt, jwt as pyjwt
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
-SUPABASE_URL = "https://woicdagfrkmtxhmqteyy.supabase.co"
-SUPABASE_KEY = os.environ.get("SUPABASE_KEY", "")
-JWT_SECRET   = os.environ.get("JWT_SECRET", "lxt-dev-secret")
-JWT_ALGO     = "HS256"
-JWT_HOURS    = 168  # 7 days
+SUPABASE_URL      = "https://woicdagfrkmtxhmqteyy.supabase.co"
+SUPABASE_KEY      = os.environ.get("SUPABASE_KEY", "")
+JWT_SECRET        = os.environ.get("JWT_SECRET", "lxt-dev-secret")
+JWT_ALGO          = "HS256"
+JWT_HOURS         = 168  # 7 days
+MAKE_WEBHOOK_URL  = os.environ.get("MAKE_WEBHOOK_URL", "")   # Make "Custom Webhook" URL
+LINE_NOTIFY_TOKEN = os.environ.get("LINE_NOTIFY_TOKEN", "")  # LINE Notify token ของ ectramu
+BACKEND_URL       = os.environ.get("BACKEND_URL", "http://localhost:8000")
 
 security = HTTPBearer(auto_error=False)
 
@@ -22,6 +25,29 @@ security = HTTPBearer(auto_error=False)
 def sb_headers():
     return {"apikey": SUPABASE_KEY, "Authorization": f"Bearer {SUPABASE_KEY}",
             "Content-Type": "application/json", "Prefer": "return=representation"}
+
+def notify_make(payload: dict):
+    """ส่งข้อมูลไปที่ Make webhook → Make จะส่ง LINE message ต่อ"""
+    if not MAKE_WEBHOOK_URL:
+        return
+    try:
+        requests.post(MAKE_WEBHOOK_URL, json=payload, timeout=5)
+    except Exception as e:
+        print(f"⚠️ Make webhook error: {e}")
+
+def notify_line(message: str):
+    """ส่งข้อความตรงผ่าน LINE Notify (ถ้ามี token)"""
+    if not LINE_NOTIFY_TOKEN:
+        return
+    try:
+        requests.post(
+            "https://notify-api.line.me/api/notify",
+            headers={"Authorization": f"Bearer {LINE_NOTIFY_TOKEN}"},
+            data={"message": message},
+            timeout=5,
+        )
+    except Exception as e:
+        print(f"⚠️ LINE Notify error: {e}")
 
 def hash_pw(pw: str) -> str:
     return bcrypt.hashpw(pw.encode(), bcrypt.gensalt()).decode()
@@ -193,7 +219,38 @@ def create_report(data: dict, user=Depends(get_user)):
         "material_images":  json.dumps(data.get("materialImages", [])),
     }
     r = requests.post(f"{SUPABASE_URL}/rest/v1/reports", headers=sb_headers(), json=payload)
-    return {"status": "success"} if r.status_code in (200, 201) else {"status": "error", "detail": r.text}
+    if r.status_code in (200, 201):
+        saved = r.json()
+        rid = saved[0]["id"] if saved else None
+        report_url = f"{BACKEND_URL}/report/{rid}" if rid else ""
+        wt_list = data.get("workTypes", [])
+        # แจ้งเตือนผ่าน Make → LINE
+        notify_make({
+            "event":       "new_report",
+            "report_id":   rid,
+            "date":        payload["date"],
+            "project":     payload["project"],
+            "site":        payload["site"],
+            "work_types":  ", ".join(wt_list),
+            "description": payload["description"],
+            "quantity":    payload["quantity"],
+            "issues":      payload["issues"],
+            "report_url":  report_url,
+            "submitted_by": user.get("full_name", user.get("username", "")),
+        })
+        # แจ้งเตือนผ่าน LINE Notify โดยตรง (backup)
+        msg = (
+            f"\n📋 รายงานใหม่ #{rid}"
+            f"\n📅 {payload['date']}"
+            f"\n🏗️ {payload['project']} | 📍 {payload['site']}"
+            f"\n🔧 {', '.join(wt_list) or '-'}"
+            f"\n📝 {payload['description'][:80]}"
+            + (f"\n⚠️ {payload['issues']}" if payload.get("issues") else "")
+            + (f"\n🔗 {report_url}" if report_url else "")
+        )
+        notify_line(msg)
+        return {"status": "success", "report_id": rid}
+    return {"status": "error", "detail": r.text}
 
 @app.get("/reports")
 def get_reports(user=Depends(get_user)):
@@ -237,6 +294,68 @@ def get_stats(user=Depends(get_user)):
         "by_project": sorted([{"project":k,"count":v} for k,v in pm.items()],key=lambda x:-x["count"])[:10],
         "by_site":    sorted([{"site":k,"count":v}    for k,v in sm.items()],key=lambda x:-x["count"])[:10],
     }
+
+# ── LINE ↔ Make Webhook ───────────────────────────────────────────────────────
+
+@app.post("/line/webhook")
+async def line_webhook(data: dict):
+    """
+    รับข้อความจาก Make (Make ได้รับ LINE message แล้วส่งต่อมาที่นี่)
+    Make ควรส่ง JSON: { "user_id": "...", "message": "...", "reply_token": "..." }
+    """
+    msg  = (data.get("message") or "").strip().lower()
+    uid  = data.get("user_id", "")
+    reply = ""
+
+    if msg in ("สถิติ", "stat", "stats", "ยอด"):
+        r = requests.get(f"{SUPABASE_URL}/rest/v1/reports?order=date.asc", headers=sb_headers())
+        rows = r.json()
+        today = datetime.date.today().isoformat()
+        wk    = (datetime.date.today() - datetime.timedelta(days=6)).isoformat()
+        mo    = datetime.date.today().replace(day=1).isoformat()
+        reply = (
+            f"📊 สถิติ CoWork\n"
+            f"ทั้งหมด: {len(rows)} รายงาน\n"
+            f"วันนี้: {sum(1 for x in rows if x.get('date')==today)}\n"
+            f"สัปดาห์นี้: {sum(1 for x in rows if x.get('date','')>=wk)}\n"
+            f"เดือนนี้: {sum(1 for x in rows if x.get('date','')>=mo)}"
+        )
+
+    elif msg in ("รายงานวันนี้", "today", "วันนี้"):
+        today = datetime.date.today().isoformat()
+        r = requests.get(f"{SUPABASE_URL}/rest/v1/reports?date=eq.{today}&order=id.desc", headers=sb_headers())
+        rows = r.json()
+        if not rows:
+            reply = f"📋 วันนี้ ({today}) ยังไม่มีรายงาน"
+        else:
+            lines = [f"📋 รายงานวันนี้ {today} ({len(rows)} รายการ)"]
+            for x in rows[:5]:
+                lines.append(f"• #{x['id']} {x.get('project','')} – {x.get('site','')}")
+            if len(rows) > 5:
+                lines.append(f"...และอีก {len(rows)-5} รายการ")
+            reply = "\n".join(lines)
+
+    elif msg.startswith("รายงาน ") or msg.startswith("report "):
+        parts = msg.split()
+        if len(parts) >= 2 and parts[1].isdigit():
+            rid = int(parts[1])
+            reply = f"🔗 ดูรายงาน #{rid}: {BACKEND_URL}/report/{rid}"
+        else:
+            reply = "❌ รูปแบบ: รายงาน {id}  เช่น รายงาน 42"
+
+    elif msg in ("help", "ช่วยเหลือ", "คำสั่ง", "?"):
+        reply = (
+            "📱 คำสั่ง CoWork\n"
+            "• สถิติ – ดูสรุปยอด\n"
+            "• วันนี้ – รายงานวันนี้\n"
+            "• รายงาน {id} – ดูรายงานตาม ID\n"
+            "• ช่วยเหลือ – คำสั่งทั้งหมด"
+        )
+    else:
+        reply = f"❓ ไม่เข้าใจคำสั่ง \"{data.get('message','')}\" พิมพ์ 'ช่วยเหลือ' เพื่อดูคำสั่ง"
+
+    return {"reply": reply, "user_id": uid}
+
 
 # ── HTML Daily Report ─────────────────────────────────────────────────────────
 
