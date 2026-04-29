@@ -162,8 +162,28 @@ function SubmitTab({ token, onExpired }) {
   const [materialImages,setMaterialImages]= useState([]);
   const [areaImages,    setAreaImages]    = useState([]);
   const [loading, setLoading] = useState(false);
+  const [gpsLoading, setGpsLoading] = useState(false);
   const set = (k,v) => setForm(f=>({...f,[k]:v}));
   const toggleWT = wt => set("workTypes", form.workTypes.includes(wt)?form.workTypes.filter(x=>x!==wt):[...form.workTypes,wt]);
+
+  const getGPS = () => {
+    if (!navigator.geolocation) { alert("อุปกรณ์นี้ไม่รองรับ GPS"); return; }
+    setGpsLoading(true);
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        const lat = pos.coords.latitude.toFixed(6);
+        const lng = pos.coords.longitude.toFixed(6);
+        set("gps", `${lat}, ${lng}`);
+        setGpsLoading(false);
+      },
+      (err) => {
+        const msgs = { 1:"กรุณาอนุญาตให้ App เข้าถึง GPS", 2:"ไม่สามารถระบุตำแหน่งได้", 3:"หมดเวลา กรุณาลองใหม่" };
+        alert("⚠️ " + (msgs[err.code] || "GPS Error"));
+        setGpsLoading(false);
+      },
+      { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
+    );
+  };
 
   const submit = async () => {
     if (!form.project||!form.site||!form.description||form.workTypes.length===0) { alert("กรุณากรอกข้อมูลให้ครบ"); return; }
@@ -190,7 +210,16 @@ function SubmitTab({ token, onExpired }) {
       </div>
       <div style={{display:"flex",gap:12}}>
         <div style={{flex:1}}><label style={S.label}>📍 Site *</label><input value={form.site} placeholder="Site A" style={S.input} onChange={e=>set("site",e.target.value)}/></div>
-        <div style={{flex:1}}><label style={S.label}>🌐 GPS</label><input value={form.gps} placeholder="13.75, 100.50" style={S.input} onChange={e=>set("gps",e.target.value)}/></div>
+        <div style={{flex:1}}>
+          <label style={S.label}>🌐 GPS</label>
+          <div style={{display:"flex",gap:6}}>
+            <input value={form.gps} placeholder="13.75, 100.50" style={{...S.input,flex:1,marginBottom:0}} onChange={e=>set("gps",e.target.value)}/>
+            <button type="button" onClick={getGPS} disabled={gpsLoading}
+              style={{padding:"8px 10px",borderRadius:6,border:"1px solid #3b82f6",background:gpsLoading?"#93c5fd":"#3b82f6",color:"#fff",cursor:gpsLoading?"not-allowed":"pointer",fontSize:16,whiteSpace:"nowrap",flexShrink:0}}>
+              {gpsLoading ? "⏳" : "📍"}
+            </button>
+          </div>
+        </div>
       </div>
       <label style={{...S.label,marginBottom:8}}>🔧 Work Type *</label>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:14,padding:12,border:"1px solid #d1d5db",borderRadius:6,background:"#f9fafb"}}>
