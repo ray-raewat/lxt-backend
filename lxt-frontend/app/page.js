@@ -7,6 +7,16 @@ const WORK_TYPES = ["Pipe Jacking","HDD (Horizontal Directional Drilling)","Open
   "Cable Pulling","Jointing / Splicing","Testing & Commissioning",
   "Survey / Setting Out","Backfilling & Reinstatement","Manhole","Others"];
 
+const SAFETY_ITEMS = [
+  { key:"toolboxTalk",  label:"1.1 ประชุมความปลอดภัย ก่อนเริ่มงาน (Toolbox Talk)" },
+  { key:"trafficSigns", label:"1.2 ตั้งกรวย แผงกั้น และป้ายเตือนครบถ้วน (Traffic Signs)" },
+  { key:"shoring",      label:"1.3 ตรวจสอบความปลอดภัยหน้างานขุด (Shoring / Slope)" },
+  { key:"ppe",          label:"1.4 พนักงานทุกคนสวม PPE ครบถ้วน (หมวก เสื้อกั๊ก รองเท้า)" },
+  { key:"firstAid",     label:"1.5 มีกล่องปฐมพยาบาล มีอุปกรณ์ครบ (First Aid)" },
+  { key:"areaSafety",   label:"1.7 ตรวจสอบความปลอดภัยรอบพื้นที่ทำงาน (Area Safety)" },
+];
+const SAFETY_DEFAULT = { toolboxTalk:false, trafficSigns:false, shoring:false, ppe:false, firstAid:false, laborCount:"", areaSafety:false };
+
 const ROLES = ["admin","user","viewer"];
 const ROLE_COLOR = { admin:"#dc2626", user:"#1d4ed8", viewer:"#059669" };
 const COLORS = ["#1d4ed8","#0891b2","#059669","#d97706","#dc2626","#7c3aed","#db2777","#65a30d","#ea580c","#0284c7"];
@@ -113,6 +123,77 @@ function ImageUploader({ label, category, images, setImages, token }) {
   );
 }
 
+/* ── Safety Tab ── */
+function SafetyTab({ safety, setSafety }) {
+  const toggle = key => setSafety(s => ({...s, [key]: !s[key]}));
+  const checked = SAFETY_ITEMS.filter(i => safety[i.key]).length;
+  const total   = SAFETY_ITEMS.length;
+  const pct     = Math.round((checked / total) * 100);
+  const barColor = checked === total ? "#16a34a" : checked >= total/2 ? "#d97706" : "#dc2626";
+
+  return (
+    <div>
+      {/* Header summary */}
+      <div style={{background: checked===total?"#f0fdf4":"#fffbeb", border:`1px solid ${checked===total?"#86efac":"#fde68a"}`, borderRadius:8, padding:"12px 16px", marginBottom:16}}>
+        <div style={{display:"flex", justifyContent:"space-between", alignItems:"center"}}>
+          <p style={{fontWeight:700, color: checked===total?"#166534":"#92400e", margin:0, fontSize:14}}>
+            🦺 Safety Checklist — {checked}/{total} รายการ
+          </p>
+          <span style={{fontWeight:800, fontSize:18, color:barColor}}>{pct}%</span>
+        </div>
+        <div style={{marginTop:8, background:"#e5e7eb", borderRadius:4, height:6, overflow:"hidden"}}>
+          <div style={{width:`${pct}%`, height:"100%", background:barColor, borderRadius:4, transition:"width .3s"}}/>
+        </div>
+        <p style={{fontSize:11, color:"#6b7280", margin:"6px 0 0"}}>
+          ✏️ กรอกข้อมูลที่นี่ แล้วกดส่งรายงานใน Tab <b>Submit</b> — ข้อมูล Safety จะถูกรวมส่งพร้อมกัน
+        </p>
+      </div>
+
+      {/* Checklist items */}
+      <div style={{display:"flex", flexDirection:"column", gap:8}}>
+        {SAFETY_ITEMS.map(item => (
+          <label key={item.key} onClick={()=>toggle(item.key)}
+            style={{display:"flex", alignItems:"center", gap:12, padding:"12px 14px",
+              background: safety[item.key]?"#f0fdf4":"white",
+              border:`1px solid ${safety[item.key]?"#86efac":"#e5e7eb"}`,
+              borderRadius:8, cursor:"pointer", userSelect:"none"}}>
+            <div style={{width:24, height:24, borderRadius:6, border:`2px solid ${safety[item.key]?"#16a34a":"#d1d5db"}`,
+              background: safety[item.key]?"#16a34a":"white", display:"flex", alignItems:"center", justifyContent:"center",
+              flexShrink:0, transition:"all .15s"}}>
+              {safety[item.key] && <span style={{color:"white", fontSize:14, fontWeight:800}}>✓</span>}
+            </div>
+            <span style={{fontSize:14, color:"#111", flex:1, lineHeight:1.4,
+              fontWeight: safety[item.key]?600:400}}>{item.label}</span>
+          </label>
+        ))}
+
+        {/* 1.6 Labor count */}
+        <div style={{padding:"12px 14px", background:"white", border:"1px solid #e5e7eb", borderRadius:8}}>
+          <label style={{...S.label, marginBottom:10}}>1.6 นับจำนวนคนงาน (Labor Count)</label>
+          <div style={{display:"flex", alignItems:"center", gap:10}}>
+            <button onClick={()=>setSafety(s=>({...s,laborCount:String(Math.max(0,(parseInt(s.laborCount)||0)-1))}))}
+              style={{width:36, height:36, borderRadius:6, border:"1px solid #d1d5db", background:"#f9fafb", fontSize:20, cursor:"pointer", fontWeight:700, lineHeight:"1"}}>−</button>
+            <input type="number" min="0" value={safety.laborCount}
+              onChange={e=>setSafety(s=>({...s,laborCount:e.target.value}))}
+              style={{...S.input, width:80, textAlign:"center", marginBottom:0, fontSize:18, fontWeight:700}}/>
+            <button onClick={()=>setSafety(s=>({...s,laborCount:String((parseInt(s.laborCount)||0)+1)}))}
+              style={{width:36, height:36, borderRadius:6, border:"1px solid #d1d5db", background:"#f9fafb", fontSize:20, cursor:"pointer", fontWeight:700, lineHeight:"1"}}>+</button>
+            <span style={{fontSize:13, color:"#6b7280"}}>คน</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Reminder */}
+      <div style={{marginTop:16, padding:"10px 14px", background:"#eff6ff", borderRadius:8, border:"1px solid #bfdbfe"}}>
+        <p style={{fontSize:12, color:"#1d4ed8", margin:0}}>
+          💡 <b>หมายเหตุ:</b> ข้อมูล Safety จะถูกบันทึกพร้อมกับรายงานประจำวัน
+          กรุณากรอก Tab <b>Submit</b> ให้ครบก่อนกด Submit Report
+        </p>
+      </div>
+    </div>
+  );
+}
+
 /* ── Login Screen ── */
 function LoginScreen({ onLogin }) {
   const [form, setForm] = useState({ username:"", password:"" });
@@ -154,13 +235,14 @@ function LoginScreen({ onLogin }) {
 }
 
 /* ── Submit Tab ── */
-function SubmitTab({ token, onExpired }) {
+function SubmitTab({ token, onExpired, safety, setSafety }) {
   const api = useApi(token, onExpired);
   const [form, setForm] = useState({ date:TODAY,project:"",site:"",gps:"",workTypes:[],description:"",quantity:"",issues:"" });
-  const [teamImages,    setTeamImages]    = useState([]);
-  const [equipImages,   setEquipImages]   = useState([]);
-  const [materialImages,setMaterialImages]= useState([]);
-  const [areaImages,    setAreaImages]    = useState([]);
+  const [teamImages,     setTeamImages]     = useState([]);
+  const [equipImages,    setEquipImages]    = useState([]);
+  const [materialImages, setMaterialImages] = useState([]);
+  const [areaImages,     setAreaImages]     = useState([]);
+  const [closingImages,  setClosingImages]  = useState([]);
   const [loading, setLoading] = useState(false);
   const [gpsLoading, setGpsLoading] = useState(false);
   const set = (k,v) => setForm(f=>({...f,[k]:v}));
@@ -189,11 +271,12 @@ function SubmitTab({ token, onExpired }) {
     if (!form.project||!form.site||!form.description||form.workTypes.length===0) { alert("กรุณากรอกข้อมูลให้ครบ"); return; }
     setLoading(true);
     try {
-      const r = await api("/reports",{method:"POST",body:JSON.stringify({...form,teamImages,equipmentImages:equipImages,materialImages,areaImages})});
+      const r = await api("/reports",{method:"POST",body:JSON.stringify({...form,teamImages,equipmentImages:equipImages,materialImages,areaImages,closingImages,safety})});
       if (r.ok) {
         alert("✅ ส่งรายงานสำเร็จ");
         setForm({date:TODAY,project:"",site:"",gps:"",workTypes:[],description:"",quantity:"",issues:""});
-        setTeamImages([]); setEquipImages([]); setMaterialImages([]); setAreaImages([]);
+        setTeamImages([]); setEquipImages([]); setMaterialImages([]); setAreaImages([]); setClosingImages([]);
+        setSafety(SAFETY_DEFAULT);
       } else {
         const err = await r.json().catch(()=>({}));
         alert("❌ ส่งไม่สำเร็จ\n" + (err.detail || `Server error: ${r.status}`));
@@ -221,7 +304,7 @@ function SubmitTab({ token, onExpired }) {
           </div>
         </div>
       </div>
-      <label style={{...S.label,marginBottom:8}}>🔧 Work Type *</label>
+      <label style={{...S.label,marginBottom:8}}>🔧 Work Type * (เลือกงานที่จะรายงาน)</label>
       <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:14,padding:12,border:"1px solid #d1d5db",borderRadius:6,background:"#f9fafb"}}>
         {WORK_TYPES.map(wt=>(
           <label key={wt} style={{display:"flex",alignItems:"center",gap:8,fontSize:13,cursor:"pointer",color:"#111"}}>
@@ -236,11 +319,12 @@ function SubmitTab({ token, onExpired }) {
         <div style={{flex:2}}><label style={S.label}>⚠️ Issues</label><input value={form.issues} placeholder="ปัญหา / ข้อสังเกต" style={S.input} onChange={e=>set("issues",e.target.value)}/></div>
       </div>
       <div style={{borderTop:"2px solid #e5e7eb",paddingTop:16,marginTop:4}}>
-        <p style={{fontWeight:700,color:"#1e3a5f",marginBottom:14,fontSize:14}}>📷 Photos — Auto-compressed</p>
-        <ImageUploader label="👷 Working Team"              category="team"     images={teamImages}     setImages={setTeamImages}     token={token}/>
-        <ImageUploader label="🔧 Tools & Machines"          category="equip"    images={equipImages}    setImages={setEquipImages}    token={token}/>
-        <ImageUploader label="📦 Materials"                 category="material" images={materialImages} setImages={setMaterialImages} token={token}/>
-        <ImageUploader label="📍 Work Area (Before & After)"category="area"     images={areaImages}     setImages={setAreaImages}     token={token}/>
+        <p style={{fontWeight:700,color:"#1e3a5f",marginBottom:14,fontSize:14}}>📷 Photo (ถ่ายรูปรายงาน) — Auto-compressed</p>
+        <ImageUploader label="👷 Working Team (ถ่ายรูปกองงานเรียงแถว)"              category="team"     images={teamImages}     setImages={setTeamImages}     token={token}/>
+        <ImageUploader label="🔧 Tools & Machines (ถ่ายรูปเครื่องมือเครื่องจักรที่ใช้)" category="equip"    images={equipImages}    setImages={setEquipImages}    token={token}/>
+        <ImageUploader label="📦 Material (ถ่ายรูปวัสดุเข้า-ออก)"                   category="material" images={materialImages} setImages={setMaterialImages} token={token}/>
+        <ImageUploader label="📍 Work Area (ถ่ายรูปพื้นที่ทำงาน ก่อนและหลัง)"       category="area"     images={areaImages}     setImages={setAreaImages}     token={token}/>
+        <ImageUploader label="🔒 ปิดกั้นและคลุมหลุมขุดทั้งหมด ก่อนออกจากสถานที่"    category="closing"  images={closingImages}  setImages={setClosingImages}  token={token}/>
       </div>
       <button onClick={submit} disabled={loading} style={{...S.btn(loading?"#9ca3af":"#1d4ed8",true),marginTop:8,cursor:loading?"not-allowed":"pointer"}}>
         {loading?"⏳ กำลังส่ง...":"🚀 Submit Daily Report"}
@@ -348,7 +432,8 @@ function ReportsTab({ token, role, onExpired }) {
     setReports(p=>p.filter(r=>r.id!==id));
   };
 
-  const totalPics = r => (r.teamImages?.length||0)+(r.equipmentImages?.length||0)+(r.materialImages?.length||0)+(r.areaImages?.length||0);
+  const totalPics = r => (r.teamImages?.length||0)+(r.equipmentImages?.length||0)+(r.materialImages?.length||0)+(r.areaImages?.length||0)+(r.closingImages?.length||0);
+  const safetyCount = r => { if(!r.safety) return null; return SAFETY_ITEMS.filter(i=>r.safety[i.key]).length; };
 
   return (
     <div>
@@ -367,8 +452,9 @@ function ReportsTab({ token, role, onExpired }) {
           <div style={{padding:"12px 14px",cursor:"pointer"}} onClick={()=>setExpanded(expanded===r.id?null:r.id)}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
               <span style={{fontWeight:700,fontSize:15,color:"#1d4ed8"}}>{r.project||"-"}</span>
-              <div style={{display:"flex",gap:6,alignItems:"center"}}>
+              <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
                 {totalPics(r)>0&&<span style={{fontSize:11,background:"#dbeafe",color:"#1d4ed8",padding:"2px 7px",borderRadius:20,fontWeight:600}}>📷{totalPics(r)}</span>}
+                {safetyCount(r)!==null&&<span style={{fontSize:11,background:safetyCount(r)===SAFETY_ITEMS.length?"#dcfce7":"#fef9c3",color:safetyCount(r)===SAFETY_ITEMS.length?"#166534":"#854d0e",padding:"2px 7px",borderRadius:20,fontWeight:600}}>🦺{safetyCount(r)}/{SAFETY_ITEMS.length}</span>}
                 <span style={{fontSize:12,color:"#6b7280",background:"#f3f4f6",padding:"2px 8px",borderRadius:20}}>{r.date}</span>
                 <span style={{fontSize:12,color:"#9ca3af"}}>{expanded===r.id?"▲":"▼"}</span>
               </div>
@@ -384,7 +470,24 @@ function ReportsTab({ token, role, onExpired }) {
                 <span>📏 {r.quantity||"-"}</span>
                 {r.issues&&r.issues!=="None"&&<span style={{color:"#b45309"}}>⚠️ {r.issues}</span>}
               </div>
-              {[["👷 Team",r.teamImages],["🔧 Tools",r.equipmentImages],["📦 Materials",r.materialImages],["📍 Area",r.areaImages]].map(([lbl,imgs])=>
+              {/* Safety summary */}
+              {r.safety && Object.keys(r.safety).length>0 && (
+                <div style={{marginBottom:12,padding:"10px 12px",background:"#f0fdf4",borderRadius:8,border:"1px solid #86efac"}}>
+                  <p style={{fontSize:12,fontWeight:700,color:"#166534",marginBottom:6}}>🦺 Safety — {safetyCount(r)}/{SAFETY_ITEMS.length} รายการ</p>
+                  <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
+                    {SAFETY_ITEMS.map(item=>(
+                      <span key={item.key} style={{fontSize:11,padding:"2px 8px",borderRadius:12,
+                        background:r.safety[item.key]?"#dcfce7":"#fee2e2",
+                        color:r.safety[item.key]?"#166534":"#ef4444"}}>
+                        {r.safety[item.key]?"✅":"❌"} {item.label.split("(")[0].trim()}
+                      </span>
+                    ))}
+                    {r.safety.laborCount && <span style={{fontSize:11,padding:"2px 8px",borderRadius:12,background:"#dbeafe",color:"#1d4ed8"}}>👷 {r.safety.laborCount} คน</span>}
+                  </div>
+                </div>
+              )}
+              {/* Photo grids */}
+              {[["👷 Working Team",r.teamImages],["🔧 Tools & Machines",r.equipmentImages],["📦 Materials",r.materialImages],["📍 Work Area",r.areaImages],["🔒 ปิดกั้นหลุมขุด",r.closingImages]].map(([lbl,imgs])=>
                 imgs?.length>0&&(
                   <div key={lbl} style={{marginBottom:10}}>
                     <p style={{fontSize:12,fontWeight:700,color:"#374151",marginBottom:6}}>{lbl}</p>
@@ -525,6 +628,7 @@ export default function Home() {
     try { const s=localStorage.getItem("lxt_auth"); return s?JSON.parse(s):null; } catch{return null;}
   });
   const [tab, setTab] = useState("submit");
+  const [safety, setSafety] = useState(SAFETY_DEFAULT);
 
   const handleLogin = (data) => {
     localStorage.setItem("lxt_auth", JSON.stringify(data));
@@ -538,8 +642,10 @@ export default function Home() {
 
   if (!auth) return <LoginScreen onLogin={handleLogin}/>;
 
+  const safetyChecked = SAFETY_ITEMS.filter(i=>safety[i.key]).length;
   const tabs = [
     {id:"submit",    label:"✏️ Submit"},
+    {id:"safety",    label:`🦺 Safety${safetyChecked>0?` (${safetyChecked}/${SAFETY_ITEMS.length})`:""}` },
     {id:"dashboard", label:"📊 Dashboard"},
     {id:"view",      label:"📋 Reports"},
     ...(auth.role==="admin"?[{id:"admin",label:"⚙️ Admin"}]:[]),
@@ -570,7 +676,8 @@ export default function Home() {
           ))}
         </div>
         <div style={{padding:"20px 24px 24px"}}>
-          {tab==="submit"    && <SubmitTab    token={auth.token} onExpired={logout}/>}
+          {tab==="submit"    && <SubmitTab    token={auth.token} onExpired={logout} safety={safety} setSafety={setSafety}/>}
+          {tab==="safety"    && <SafetyTab    safety={safety} setSafety={setSafety}/>}
           {tab==="dashboard" && <DashboardTab token={auth.token} onExpired={logout}/>}
           {tab==="view"      && <ReportsTab   token={auth.token} role={auth.role} onExpired={logout}/>}
           {tab==="admin"     && <AdminTab     token={auth.token} onExpired={logout}/>}
