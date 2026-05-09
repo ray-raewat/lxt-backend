@@ -12,10 +12,9 @@ const SAFETY_ITEMS = [
   { key:"trafficSigns", label:"1.2 ตั้งกรวย แผงกั้น และป้ายเตือนครบถ้วน (Traffic Signs)" },
   { key:"shoring",      label:"1.3 ตรวจสอบความปลอดภัยหน้างานขุด (Shoring / Slope)" },
   { key:"ppe",          label:"1.4 พนักงานทุกคนสวม PPE ครบถ้วน (หมวก เสื้อกั๊ก รองเท้า)" },
-  { key:"firstAid",     label:"1.5 มีกล่องปฐมพยาบาล มีอุปกรณ์ครบ (First Aid)" },
-  { key:"areaSafety",   label:"1.7 ตรวจสอบความปลอดภัยรอบพื้นที่ทำงาน (Area Safety)" },
+  { key:"areaSafety",   label:"1.5 ตรวจสอบความปลอดภัยรอบพื้นที่ทำงาน (Area Safety)" },
 ];
-const SAFETY_DEFAULT = { toolboxTalk:false, trafficSigns:false, shoring:false, ppe:false, firstAid:false, laborCount:"", areaSafety:false };
+const SAFETY_DEFAULT = { toolboxTalk:false, trafficSigns:false, shoring:false, ppe:false, laborCount:"", areaSafety:false };
 
 const ROLES = ["admin","user","viewer"];
 const ROLE_COLOR = { admin:"#dc2626", user:"#1d4ed8", viewer:"#059669" };
@@ -65,16 +64,20 @@ function useApi(token, onExpired) {
 }
 
 /* ── ImageUploader ── */
-function ImageUploader({ label, category, images, setImages, token }) {
+// showCaption=true → images stored as [{url,caption}]; false → plain URL strings
+function ImageUploader({ label, category, images, setImages, token, showCaption=false }) {
   const camRef = useRef(), galRef = useRef();
   const [uploading, setUploading] = useState(false);
+
+  const getUrl = item => showCaption ? (item?.url||"") : item;
+  const getCap = item => showCaption ? (item?.caption||"") : "";
 
   const handle = async (files) => {
     if (!files?.length) return;
     setUploading(true);
     try {
       const slots = 5 - images.length;
-      const urls = await Promise.all(Array.from(files).slice(0,slots).map(async f => {
+      const newItems = await Promise.all(Array.from(files).slice(0,slots).map(async f => {
         const blob = await compress(f);
         const fd = new FormData();
         fd.append("file", blob, "photo.jpg");
@@ -82,23 +85,31 @@ function ImageUploader({ label, category, images, setImages, token }) {
         const r = await fetch(`${API}/upload-image`, { method:"POST", headers:{ Authorization:`Bearer ${token}` }, body:fd });
         const d = await r.json();
         if (!d.url) throw new Error(d.error||"Upload failed");
-        return d.url;
+        return showCaption ? {url: d.url, caption: ""} : d.url;
       }));
-      setImages(p => [...p, ...urls]);
+      setImages(p => [...p, ...newItems]);
     } catch(e) { alert("❌ Upload error: "+e.message); }
     setUploading(false);
   };
 
   const remove = i => setImages(p => p.filter((_,j)=>j!==i));
+  const updateCap = (i, cap) => setImages(p => p.map((item,j) => j===i ? {...item, caption:cap} : item));
 
   return (
     <div style={{marginBottom:16}}>
       <label style={{...S.label,marginBottom:8}}>{label}</label>
-      <div style={{display:"flex",flexWrap:"wrap",gap:8,alignItems:"flex-start"}}>
-        {images.map((url,i)=>(
-          <div key={i} style={{position:"relative",width:88,height:88}}>
-            <img src={url} alt="" style={{width:88,height:88,objectFit:"cover",borderRadius:6,border:"1px solid #d1d5db"}}/>
-            <button onClick={()=>remove(i)} style={{position:"absolute",top:-7,right:-7,width:22,height:22,borderRadius:"50%",background:"#ef4444",color:"white",border:"none",cursor:"pointer",fontSize:13,lineHeight:"22px",padding:0}}>×</button>
+      <div style={{display:"flex",flexWrap:"wrap",gap:10,alignItems:"flex-start"}}>
+        {images.map((item,i)=>(
+          <div key={i} style={{position:"relative", width: showCaption ? 110 : 88}}>
+            <div style={{position:"relative",width:"100%",height:88}}>
+              <img src={getUrl(item)} alt="" style={{width:"100%",height:88,objectFit:"cover",borderRadius:6,border:"1px solid #d1d5db"}}/>
+              <button onClick={()=>remove(i)} style={{position:"absolute",top:-7,right:-7,width:22,height:22,borderRadius:"50%",background:"#ef4444",color:"white",border:"none",cursor:"pointer",fontSize:13,lineHeight:"22px",padding:0}}>×</button>
+            </div>
+            {showCaption && (
+              <input value={getCap(item)} onChange={e=>updateCap(i,e.target.value)}
+                placeholder="คำอธิบาย..."
+                style={{width:"100%",padding:"4px 6px",fontSize:11,border:"1px solid #d1d5db",borderRadius:4,marginTop:4,boxSizing:"border-box",color:"#111"}}/>
+            )}
           </div>
         ))}
         {images.length<5 && (
@@ -114,9 +125,7 @@ function ImageUploader({ label, category, images, setImages, token }) {
           </div>
         )}
       </div>
-      {/* Camera – opens camera on mobile */}
       <input ref={camRef} type="file" accept="image/*" capture="environment" style={{display:"none"}} onChange={e=>handle(e.target.files)} />
-      {/* Gallery – opens photo picker (multiple) */}
       <input ref={galRef} type="file" accept="image/*" multiple style={{display:"none"}} onChange={e=>handle(e.target.files)} />
       <p style={{fontSize:11,color:"#9ca3af",marginTop:4}}>Max 5 · Auto-compressed · Camera or Gallery</p>
     </div>
@@ -322,8 +331,8 @@ function SubmitTab({ token, onExpired, safety, setSafety }) {
         <p style={{fontWeight:700,color:"#1e3a5f",marginBottom:14,fontSize:14}}>📷 Photo (ถ่ายรูปรายงาน) — Auto-compressed</p>
         <ImageUploader label="👷 Working Team (ถ่ายรูปกองงานเรียงแถว)"              category="team"     images={teamImages}     setImages={setTeamImages}     token={token}/>
         <ImageUploader label="🔧 Tools & Machines (ถ่ายรูปเครื่องมือเครื่องจักรที่ใช้)" category="equip"    images={equipImages}    setImages={setEquipImages}    token={token}/>
-        <ImageUploader label="📦 Material (ถ่ายรูปวัสดุเข้า-ออก)"                   category="material" images={materialImages} setImages={setMaterialImages} token={token}/>
-        <ImageUploader label="📍 Work Area (ถ่ายรูปพื้นที่ทำงาน ก่อนและหลัง)"       category="area"     images={areaImages}     setImages={setAreaImages}     token={token}/>
+        <ImageUploader label="📦 Material (ถ่ายรูปวัสดุเข้า-ออก)"                   category="material" images={materialImages} setImages={setMaterialImages} token={token} showCaption={true}/>
+        <ImageUploader label="📍 Work Area (ถ่ายรูปพื้นที่ทำงาน ก่อนและหลัง)"       category="area"     images={areaImages}     setImages={setAreaImages}     token={token} showCaption={true}/>
         <ImageUploader label="🔒 ปิดกั้นและคลุมหลุมขุดทั้งหมด ก่อนออกจากสถานที่"    category="closing"  images={closingImages}  setImages={setClosingImages}  token={token}/>
       </div>
       <button onClick={submit} disabled={loading} style={{...S.btn(loading?"#9ca3af":"#1d4ed8",true),marginTop:8,cursor:loading?"not-allowed":"pointer"}}>
@@ -413,27 +422,86 @@ function DashboardTab({ token, onExpired }) {
 }
 
 /* ── Reports Tab ── */
-function ReportsTab({ token, role, onExpired }) {
+function ReportsTab({ token, role, username, onExpired }) {
   const api = useApi(token, onExpired);
-  const [reports, setReports] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [expanded, setExpanded] = useState(null);
+  const [reports, setReports]       = useState([]);
+  const [loading, setLoading]       = useState(false);
+  const [expanded, setExpanded]     = useState(null);
+  const [editId, setEditId]         = useState(null);
+  const [editForm, setEditForm]     = useState({description:"",quantity:"",issues:"",safety:{...SAFETY_DEFAULT}});
+  const [editLoading, setEditLoading] = useState(false);
+  const TODAY_STR = new Date().toISOString().split("T")[0];
 
   const load = async () => {
     setLoading(true);
-    try { const r=await api("/reports"); const d=await r.json(); setReports(d.data||[]); } catch(e){alert("❌ "+e.message);}
+    try { const r=await api("/reports"); const d=await r.json(); setReports(d.data||[]); } catch(e){ if(e.message!=="session_expired") alert("❌ "+e.message); }
     setLoading(false);
   };
-  useEffect(()=>{load();},[]);
+  useEffect(()=>{ load(); },[]);
 
   const del = async (id) => {
-    if (!confirm("Delete this report?")) return;
+    if (!confirm("ลบรายงานนี้?")) return;
     await api(`/reports/${id}`,{method:"DELETE"});
     setReports(p=>p.filter(r=>r.id!==id));
+    if (editId===id) setEditId(null);
   };
 
+  const canEdit = r => role==="admin" || (r.submitted_by===username && r.date===TODAY_STR);
+
+  const startEdit = r => {
+    setEditForm({
+      description: r.description||"",
+      quantity:    r.quantity||"",
+      issues:      r.issues||"",
+      safety: r.safety && Object.keys(r.safety).length>0 ? {...SAFETY_DEFAULT,...r.safety} : {...SAFETY_DEFAULT},
+    });
+    setEditId(r.id);
+    setExpanded(r.id);
+  };
+
+  const saveEdit = async () => {
+    setEditLoading(true);
+    try {
+      const resp = await api(`/reports/${editId}`,{method:"PUT",body:JSON.stringify(editForm)});
+      if (resp.ok) {
+        setReports(p=>p.map(r=>r.id===editId ? {...r,...editForm} : r));
+        setEditId(null);
+        alert("✅ แก้ไขสำเร็จ");
+      } else {
+        const err = await resp.json().catch(()=>({}));
+        alert("❌ " + (err.detail||"แก้ไขไม่สำเร็จ"));
+      }
+    } catch(e) { if(e.message!=="session_expired") alert("❌ "+e.message); }
+    setEditLoading(false);
+  };
+
+  const setEF = (k,v) => setEditForm(f=>({...f,[k]:v}));
+  const toggleSF = key => setEditForm(f=>({...f,safety:{...f.safety,[key]:!f.safety[key]}}));
+
   const totalPics = r => (r.teamImages?.length||0)+(r.equipmentImages?.length||0)+(r.materialImages?.length||0)+(r.areaImages?.length||0)+(r.closingImages?.length||0);
-  const safetyCount = r => { if(!r.safety) return null; return SAFETY_ITEMS.filter(i=>r.safety[i.key]).length; };
+  const safetyCount = r => { if(!r.safety||!Object.keys(r.safety).length) return null; return SAFETY_ITEMS.filter(i=>r.safety[i.key]).length; };
+
+  // Render a photo grid: plain URLs or captioned [{url,caption}]
+  const PhotoGrid = ({label, imgs, captioned=false}) => {
+    if (!imgs?.length) return null;
+    return (
+      <div style={{marginBottom:10}}>
+        <p style={{fontSize:12,fontWeight:700,color:"#374151",marginBottom:6}}>{label}</p>
+        <div style={{display:"flex",gap:8,flexWrap:"wrap"}}>
+          {imgs.map((item,i)=>{
+            const url = captioned ? (typeof item==="object" ? item.url : item) : (typeof item==="object" ? item.url : item);
+            const cap = captioned && typeof item==="object" ? (item.caption||"") : "";
+            return (
+              <div key={i} style={{width:80}}>
+                <img src={url} alt="" style={{width:80,height:80,objectFit:"cover",borderRadius:5,border:"1px solid #e5e7eb"}}/>
+                {cap && <p style={{fontSize:10,color:"#374151",margin:"3px 0 0",lineHeight:1.3,wordBreak:"break-word",maxWidth:80}}>{cap}</p>}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    );
+  };
 
   return (
     <div>
@@ -448,13 +516,15 @@ function ReportsTab({ token, role, onExpired }) {
       {loading&&<p style={{textAlign:"center",color:"#6b7280",padding:20}}>⏳ กำลังโหลด...</p>}
       {!loading&&!reports.length&&<div style={{textAlign:"center",padding:40,color:"#9ca3af"}}><p style={{fontSize:32}}>📋</p><p>ยังไม่มีรายงาน</p></div>}
       {reports.map(r=>(
-        <div key={r.id} style={{border:"1px solid #e5e7eb",borderRadius:8,marginBottom:10,background:"white",overflow:"hidden"}}>
-          <div style={{padding:"12px 14px",cursor:"pointer"}} onClick={()=>setExpanded(expanded===r.id?null:r.id)}>
+        <div key={r.id} style={{border:`2px solid ${editId===r.id?"#1d4ed8":"#e5e7eb"}`,borderRadius:8,marginBottom:10,background:"white",overflow:"hidden"}}>
+          {/* Header row */}
+          <div style={{padding:"12px 14px",cursor:"pointer"}} onClick={()=>{ setExpanded(expanded===r.id?null:r.id); if(editId===r.id) setEditId(null); }}>
             <div style={{display:"flex",justifyContent:"space-between",alignItems:"center"}}>
               <span style={{fontWeight:700,fontSize:15,color:"#1d4ed8"}}>{r.project||"-"}</span>
               <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
                 {totalPics(r)>0&&<span style={{fontSize:11,background:"#dbeafe",color:"#1d4ed8",padding:"2px 7px",borderRadius:20,fontWeight:600}}>📷{totalPics(r)}</span>}
                 {safetyCount(r)!==null&&<span style={{fontSize:11,background:safetyCount(r)===SAFETY_ITEMS.length?"#dcfce7":"#fef9c3",color:safetyCount(r)===SAFETY_ITEMS.length?"#166534":"#854d0e",padding:"2px 7px",borderRadius:20,fontWeight:600}}>🦺{safetyCount(r)}/{SAFETY_ITEMS.length}</span>}
+                {canEdit(r)&&<span style={{fontSize:11,background:"#eff6ff",color:"#1d4ed8",padding:"2px 7px",borderRadius:20,fontWeight:600}}>✏️</span>}
                 <span style={{fontSize:12,color:"#6b7280",background:"#f3f4f6",padding:"2px 8px",borderRadius:20}}>{r.date}</span>
                 <span style={{fontSize:12,color:"#9ca3af"}}>{expanded===r.id?"▲":"▼"}</span>
               </div>
@@ -463,15 +533,63 @@ function ReportsTab({ token, role, onExpired }) {
               <span>📍 {r.site||"-"}</span><span>🔧 {(r.workTypes||[]).join(", ")||"-"}</span>
             </div>
           </div>
+
+          {/* Expanded detail */}
           {expanded===r.id&&(
             <div style={{borderTop:"1px solid #f3f4f6",padding:"12px 14px",background:"#fafafa"}}>
-              <p style={{margin:"0 0 8px",fontSize:13}}>📝 {r.description||"-"}</p>
-              <div style={{display:"flex",gap:16,fontSize:13,marginBottom:10}}>
-                <span>📏 {r.quantity||"-"}</span>
-                {r.issues&&r.issues!=="None"&&<span style={{color:"#b45309"}}>⚠️ {r.issues}</span>}
-              </div>
-              {/* Safety summary */}
-              {r.safety && Object.keys(r.safety).length>0 && (
+
+              {/* Edit form */}
+              {editId===r.id ? (
+                <div style={{background:"#eff6ff",border:"1px solid #bfdbfe",borderRadius:8,padding:14,marginBottom:12}}>
+                  <p style={{fontWeight:700,color:"#1e3a5f",margin:"0 0 12px",fontSize:14}}>✏️ แก้ไขรายงาน #{r.id}</p>
+                  <label style={S.label}>📝 Description</label>
+                  <textarea value={editForm.description} onChange={e=>setEF("description",e.target.value)}
+                    style={{...S.input,height:80,resize:"vertical"}}/>
+                  <div style={{display:"flex",gap:10}}>
+                    <div style={{flex:1}}><label style={S.label}>📏 Quantity</label>
+                      <input value={editForm.quantity} onChange={e=>setEF("quantity",e.target.value)} style={S.input}/>
+                    </div>
+                    <div style={{flex:2}}><label style={S.label}>⚠️ Issues</label>
+                      <input value={editForm.issues} onChange={e=>setEF("issues",e.target.value)} style={S.input}/>
+                    </div>
+                  </div>
+                  <label style={{...S.label,marginBottom:8}}>🦺 Safety Checklist</label>
+                  <div style={{display:"flex",flexDirection:"column",gap:6,marginBottom:10,padding:10,background:"white",borderRadius:6,border:"1px solid #e5e7eb"}}>
+                    {SAFETY_ITEMS.map(item=>(
+                      <label key={item.key} style={{display:"flex",alignItems:"center",gap:8,fontSize:13,cursor:"pointer"}}>
+                        <input type="checkbox" checked={editForm.safety?.[item.key]||false}
+                          onChange={()=>toggleSF(item.key)} style={{width:16,height:16,accentColor:"#16a34a"}}/>
+                        {item.label}
+                      </label>
+                    ))}
+                    <div style={{display:"flex",alignItems:"center",gap:8,marginTop:4}}>
+                      <span style={{fontSize:13,fontWeight:600,color:"#374151"}}>1.6 Labor:</span>
+                      <input type="number" min="0" value={editForm.safety?.laborCount||""}
+                        onChange={e=>setEditForm(f=>({...f,safety:{...f.safety,laborCount:e.target.value}}))}
+                        style={{...S.input,width:72,marginBottom:0,textAlign:"center"}}/>
+                      <span style={{fontSize:13,color:"#6b7280"}}>คน</span>
+                    </div>
+                  </div>
+                  <div style={{display:"flex",gap:8}}>
+                    <button onClick={saveEdit} disabled={editLoading}
+                      style={{...S.btn("#059669"),opacity:editLoading?.6:1}}>
+                      {editLoading?"⏳ กำลังบันทึก...":"💾 บันทึก"}
+                    </button>
+                    <button onClick={()=>setEditId(null)} style={S.btn("#6b7280")}>ยกเลิก</button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <p style={{margin:"0 0 8px",fontSize:13}}>📝 {r.description||"-"}</p>
+                  <div style={{display:"flex",gap:16,fontSize:13,marginBottom:10}}>
+                    <span>📏 {r.quantity||"-"}</span>
+                    {r.issues&&r.issues!=="None"&&<span style={{color:"#b45309"}}>⚠️ {r.issues}</span>}
+                  </div>
+                </>
+              )}
+
+              {/* Safety summary (always shown) */}
+              {!editId && r.safety && Object.keys(r.safety).length>0 && (
                 <div style={{marginBottom:12,padding:"10px 12px",background:"#f0fdf4",borderRadius:8,border:"1px solid #86efac"}}>
                   <p style={{fontSize:12,fontWeight:700,color:"#166534",marginBottom:6}}>🦺 Safety — {safetyCount(r)}/{SAFETY_ITEMS.length} รายการ</p>
                   <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
@@ -482,23 +600,24 @@ function ReportsTab({ token, role, onExpired }) {
                         {r.safety[item.key]?"✅":"❌"} {item.label.split("(")[0].trim()}
                       </span>
                     ))}
-                    {r.safety.laborCount && <span style={{fontSize:11,padding:"2px 8px",borderRadius:12,background:"#dbeafe",color:"#1d4ed8"}}>👷 {r.safety.laborCount} คน</span>}
+                    {r.safety.laborCount&&<span style={{fontSize:11,padding:"2px 8px",borderRadius:12,background:"#dbeafe",color:"#1d4ed8"}}>👷 {r.safety.laborCount} คน</span>}
                   </div>
                 </div>
               )}
+
               {/* Photo grids */}
-              {[["👷 Working Team",r.teamImages],["🔧 Tools & Machines",r.equipmentImages],["📦 Materials",r.materialImages],["📍 Work Area",r.areaImages],["🔒 ปิดกั้นหลุมขุด",r.closingImages]].map(([lbl,imgs])=>
-                imgs?.length>0&&(
-                  <div key={lbl} style={{marginBottom:10}}>
-                    <p style={{fontSize:12,fontWeight:700,color:"#374151",marginBottom:6}}>{lbl}</p>
-                    <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                      {imgs.map((url,i)=><img key={i} src={url} alt="" style={{width:80,height:80,objectFit:"cover",borderRadius:5,border:"1px solid #e5e7eb"}}/>)}
-                    </div>
-                  </div>
-                )
-              )}
-              <div style={{display:"flex",gap:8,marginTop:8}}>
+              <PhotoGrid label="👷 Working Team"         imgs={r.teamImages}/>
+              <PhotoGrid label="🔧 Tools & Machines"     imgs={r.equipmentImages}/>
+              <PhotoGrid label="📦 Materials"            imgs={r.materialImages} captioned={true}/>
+              <PhotoGrid label="📍 Work Area"            imgs={r.areaImages}     captioned={true}/>
+              <PhotoGrid label="🔒 ปิดกั้นหลุมขุด"      imgs={r.closingImages}/>
+
+              {/* Action buttons */}
+              <div style={{display:"flex",gap:8,marginTop:10,flexWrap:"wrap"}}>
                 <button onClick={()=>window.open(`${API}/report/${r.id}`,"_blank")} style={S.btn()}>📄 Full Report</button>
+                {canEdit(r)&&editId!==r.id&&(
+                  <button onClick={()=>startEdit(r)} style={S.btn("#d97706")}>✏️ Edit</button>
+                )}
                 {role==="admin"&&<button onClick={()=>del(r.id)} style={S.btn("#ef4444")}>🗑️ Delete</button>}
               </div>
             </div>
@@ -679,7 +798,7 @@ export default function Home() {
           {tab==="submit"    && <SubmitTab    token={auth.token} onExpired={logout} safety={safety} setSafety={setSafety}/>}
           {tab==="safety"    && <SafetyTab    safety={safety} setSafety={setSafety}/>}
           {tab==="dashboard" && <DashboardTab token={auth.token} onExpired={logout}/>}
-          {tab==="view"      && <ReportsTab   token={auth.token} role={auth.role} onExpired={logout}/>}
+          {tab==="view"      && <ReportsTab   token={auth.token} role={auth.role} username={auth.username} onExpired={logout}/>}
           {tab==="admin"     && <AdminTab     token={auth.token} onExpired={logout}/>}
         </div>
       </div>

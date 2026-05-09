@@ -196,14 +196,15 @@ def _parse(row):
         "project":          row["project"],
         "site":             row["site"],
         "gps":              row["gps"],
+        "submitted_by":     row.get("submitted_by", "") or "",
         "workTypes":        json.loads(row.get("work_types") or "[]"),
         "description":      row["description"],
         "quantity":         row["quantity"],
         "issues":           row["issues"],
         "teamImages":       json.loads(row.get("team_images") or "[]"),
         "equipmentImages":  json.loads(row.get("equipment_images") or "[]"),
-        "areaImages":       json.loads(row.get("area_images") or "[]"),
-        "materialImages":   json.loads(row.get("material_images") or "[]"),
+        "materialImages":   _parse_captioned_list(row.get("material_images") or "[]"),
+        "areaImages":       _parse_captioned_list(row.get("area_images") or "[]"),
         "closingImages":    json.loads(row.get("closing_images") or "[]"),
         "safety":           safety_raw,
     }
@@ -225,6 +226,7 @@ def create_report(data: dict, user=Depends(get_user)):
         "material_images":  json.dumps(data.get("materialImages", [])),
         "closing_images":   json.dumps(data.get("closingImages", [])),
         "safety":           data.get("safety", {}),
+        "submitted_by":     user.get("username", ""),
     }
     r = requests.post(f"{SUPABASE_URL}/rest/v1/reports", headers=sb_headers(), json=payload)
     if r.status_code in (200, 201):
@@ -269,6 +271,35 @@ def get_reports(user=Depends(get_user)):
 def delete_report(rid: int, admin=Depends(admin_only)):
     requests.delete(f"{SUPABASE_URL}/rest/v1/reports?id=eq.{rid}", headers=sb_headers())
     return {"status": "deleted"}
+
+@app.put("/reports/{rid}")
+def update_report(rid: int, data: dict, user=Depends(get_user)):
+    # Fetch existing report
+    r = requests.get(f"{SUPABASE_URL}/rest/v1/reports?id=eq.{rid}", headers=sb_headers())
+    rows = r.json()
+    if not rows:
+        raise HTTPException(404, "Report not found")
+    rep = rows[0]
+    username = user.get("username", "")
+    role_    = user.get("role", "")
+    is_owner = rep.get("submitted_by", "") == username and username != ""
+    is_admin = role_ == "admin"
+    if not is_admin and not is_owner:
+        raise HTTPException(403, "ไม่มีสิทธิ์แก้ไขรายงานนี้")
+    today = datetime.date.today().isoformat()
+    if not is_admin and rep.get("date", "") != today:
+        raise HTTPException(403, "แก้ไขได้เฉพาะรายงานของวันนี้เท่านั้น")
+    # Only allow these fields to be updated
+    allowed = {"description", "quantity", "issues", "safety"}
+    update = {k: v for k, v in data.items() if k in allowed}
+    if not update:
+        return {"status": "nothing_to_update"}
+    resp = requests.patch(
+        f"{SUPABASE_URL}/rest/v1/reports?id=eq.{rid}",
+        headers=sb_headers(), json=update)
+    if resp.status_code in (200, 201, 204):
+        return {"status": "updated"}
+    return {"status": "error", "detail": resp.text}
 
 # ── Stats ─────────────────────────────────────────────────────────────────────
 
@@ -372,14 +403,35 @@ def _grid(title, urls):
     imgs = "".join(f'<img src="{u}" onerror="this.style.display=\'none\'">' for u in urls)
     return f'<div class="section"><div class="sec-title">{title}</div><div class="photos">{imgs}</div></div>'
 
+def _grid_cap(title, items):
+    """Photo grid with captions — for Material and Work Area sections."""
+    if not items: return f'<div class="section"><div class="sec-title">{title}</div><p class="empty">No photos uploaded</p></div>'
+    inner = ""
+    for item in items:
+        url     = item.get("url","") if isinstance(item, dict) else item
+        caption = item.get("caption","") if isinstance(item, dict) else ""
+        cap_html = f'<p class="photo-caption">{caption}</p>' if caption else ""
+        inner += f'<div class="photo-item"><img src="{url}" onerror="this.style.display:\'none\'">{cap_html}</div>'
+    return f'<div class="section"><div class="sec-title">{title}</div><div class="photos-cap">{inner}</div></div>'
+
 SAFETY_LABELS = [
     ("toolboxTalk",  "1.1 ประชุมความปลอดภัย ก่อนเริ่มงาน (Toolbox Talk)"),
     ("trafficSigns", "1.2 ตั้งกรวย แผงกั้น และป้ายเตือนครบถ้วน (Traffic Signs)"),
     ("shoring",      "1.3 ตรวจสอบความปลอดภัยหน้างานขุด (Shoring / Slope)"),
     ("ppe",          "1.4 พนักงานทุกคนสวม PPE ครบถ้วน (หมวก เสื้อกั๊ก รองเท้า)"),
-    ("firstAid",     "1.5 มีกล่องปฐมพยาบาล มีอุปกรณ์ครบ (First Aid)"),
-    ("areaSafety",   "1.7 ตรวจสอบความปลอดภัยรอบพื้นที่ทำงาน (Area Safety)"),
+    ("areaSafety",   "1.5 ตรวจสอบความปลอดภัยรอบพื้นที่ทำงาน (Area Safety)"),
 ]
+
+def _parse_captioned_list(raw):
+    """Parse image list supporting both old (string) and new ({url,caption}) format."""
+    items = json.loads(raw or "[]")
+    result = []
+    for item in items:
+        if isinstance(item, str):
+            result.append({"url": item, "caption": ""})
+        elif isinstance(item, dict):
+            result.append({"url": item.get("url", ""), "caption": item.get("caption", "")})
+    return result
 
 def _safety_section(safety):
     if not safety: return ""
@@ -432,6 +484,10 @@ body{{font-family:Arial,sans-serif;background:#f0f4f8;padding:20px;color:#111}}
 .sec-title{{font-size:15px;font-weight:700;color:#1e3a5f;border-bottom:2px solid #1d4ed8;padding-bottom:6px;margin-bottom:12px}}
 .photos{{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}}
 .photos img{{width:100%;height:180px;object-fit:cover;border-radius:6px;border:1px solid #e5e7eb}}
+.photos-cap{{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}}
+.photo-item{{display:flex;flex-direction:column}}
+.photo-item img{{width:100%;height:180px;object-fit:cover;border-radius:6px;border:1px solid #e5e7eb}}
+.photo-caption{{font-size:11px;color:#374151;margin:4px 0 0;text-align:center;word-break:break-word;line-height:1.4;font-style:italic}}
 .empty{{color:#9ca3af;font-style:italic;font-size:13px}}
 .btn{{background:#1d4ed8;color:white;border:none;padding:10px 24px;border-radius:6px;cursor:pointer;font-size:14px;font-weight:700;margin-bottom:20px}}
 .foot{{text-align:center;padding:14px;background:#f8fafc;color:#9ca3af;font-size:12px}}
@@ -453,8 +509,8 @@ body{{font-family:Arial,sans-serif;background:#f0f4f8;padding:20px;color:#111}}
 {_safety_section(rep.get('safety', {}))}
 {_grid('👷 Working Team (ถ่ายรูปกองงานเรียงแถว)', rep['teamImages'])}
 {_grid('🔧 Tools &amp; Machines (เครื่องมือเครื่องจักรที่ใช้)', rep['equipmentImages'])}
-{_grid('📦 Materials (วัสดุเข้า-ออก)', rep['materialImages'])}
-{_grid('📍 Work Area (ถ่ายรูปพื้นที่ทำงาน ก่อนและหลัง)', rep['areaImages'])}
+{_grid_cap('📦 Materials (วัสดุเข้า-ออก)', rep['materialImages'])}
+{_grid_cap('📍 Work Area (ถ่ายรูปพื้นที่ทำงาน ก่อนและหลัง)', rep['areaImages'])}
 {_grid('🔒 ปิดกั้นและคลุมหลุมขุด (ก่อนออกจากสถานที่)', rep.get('closingImages', []))}
 </div>
 <div class="foot">Generated by LXT Daily Report System — {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}</div>
@@ -494,8 +550,8 @@ def export_excel(user=Depends(get_user_from_query)):
                    sf.get("laborCount",""),chk("areaSafety"),
                    " | ".join(json.loads(row.get("team_images") or "[]")),
                    " | ".join(json.loads(row.get("equipment_images") or "[]")),
-                   " | ".join(json.loads(row.get("material_images") or "[]")),
-                   " | ".join(json.loads(row.get("area_images") or "[]")),
+                   " | ".join(i.get("url","") if isinstance(i,dict) else i for i in json.loads(row.get("material_images") or "[]")),
+                   " | ".join(i.get("url","") if isinstance(i,dict) else i for i in json.loads(row.get("area_images") or "[]")),
                    " | ".join(json.loads(row.get("closing_images") or "[]"))])
     ws.freeze_panes="A2"
     fname=f"LXT_Report_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
