@@ -1,0 +1,33 @@
+```yaml
+name: Keep Supabase Project Active
+
+on:
+  schedule:
+    # Run daily at 9 AM (UTC)
+    - cron: '0 9 * * *'
+  workflow_dispatch:
+
+jobs:
+  test-supabase:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Test Supabase API Connection
+        run: |
+          echo "Testing Supabase project connectivity..."
+
+          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
+            -X GET "https://woicdagfrkmtxhmqteyy.supabase.co/rest/v1/" \
+            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -H "Content-Type: application/json")
+
+          echo "Response Code: $RESPONSE"
+
+          if [ "$RESPONSE" -eq 200 ] || [ "$RESPONSE" -eq 401 ]; then
+            echo "Success: Supabase API is responsive"
+            exit 0
+          else
+            echo "Warning: Unexpected response code $RESPONSE"
+            exit 1
+          fi
+```
