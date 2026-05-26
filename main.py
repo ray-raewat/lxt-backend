@@ -422,6 +422,21 @@ SAFETY_LABELS = [
     ("areaSafety",   "1.5 ตรวจสอบความปลอดภัยรอบพื้นที่ทำงาน (Area Safety)"),
 ]
 
+# ── Report Display Settings (defaults — override via app_settings table) ───────
+DEFAULT_DISPLAY = {
+    "showGps":             True,
+    "showWorkTypes":       True,
+    "showQuantity":        True,
+    "showIssues":          True,
+    "showSafety":          True,
+    "showLabor":           True,
+    "showTeamImages":      True,
+    "showEquipmentImages": True,
+    "showMaterialImages":  True,
+    "showAreaImages":      True,
+    "showClosingImages":   True,
+}
+
 def _parse_captioned_list(raw):
     """Parse image list supporting both old (string) and new ({url,caption}) format."""
     items = json.loads(raw or "[]")
@@ -433,7 +448,7 @@ def _parse_captioned_list(raw):
             result.append({"url": item.get("url", ""), "caption": item.get("caption", "")})
     return result
 
-def _safety_section(safety):
+def _safety_section(safety, show_labor=True):
     if not safety: return ""
     rows_html = ""
     for key, label in SAFETY_LABELS:
@@ -441,8 +456,9 @@ def _safety_section(safety):
         icon = "✅" if val else "❌"
         bg   = "#f0fdf4" if val else "#fff"
         rows_html += f'<tr style="background:{bg}"><td style="padding:7px 12px;font-size:13px">{label}</td><td style="padding:7px 12px;text-align:center;font-size:16px">{icon}</td></tr>'
-    labor = safety.get("laborCount", "-") or "-"
-    rows_html += f'<tr style="background:#fffbeb"><td style="padding:7px 12px;font-size:13px">1.6 จำนวนคนงาน (Labor)</td><td style="padding:7px 12px;text-align:center;font-weight:700;font-size:14px">{labor} คน</td></tr>'
+    if show_labor:
+        labor = safety.get("laborCount", "-") or "-"
+        rows_html += f'<tr style="background:#fffbeb"><td style="padding:7px 12px;font-size:13px">1.6 จำนวนคนงาน (Labor)</td><td style="padding:7px 12px;text-align:center;font-weight:700;font-size:14px">{labor} คน</td></tr>'
     checked = sum(1 for k,_ in SAFETY_LABELS if safety.get(k))
     total = len(SAFETY_LABELS)
     bar_color = "#16a34a" if checked==total else "#d97706" if checked>=total//2 else "#dc2626"
@@ -460,12 +476,61 @@ def _safety_section(safety):
 </div>
 </div>'''
 
+# ── Report Display Settings ───────────────────────────────────────────────────
+
+def _get_display_settings() -> dict:
+    """Fetch current display settings from Supabase; fall back to defaults."""
+    try:
+        r = requests.get(f"{SUPABASE_URL}/rest/v1/app_settings?key=eq.report_display",
+                         headers=sb_headers(), timeout=5)
+        rows = r.json()
+        if rows:
+            return {**DEFAULT_DISPLAY, **rows[0].get("value", {})}
+    except Exception:
+        pass
+    return DEFAULT_DISPLAY.copy()
+
+@app.get("/settings")
+def get_settings(user=Depends(get_user)):
+    return _get_display_settings()
+
+@app.put("/settings")
+def update_settings(data: dict, admin=Depends(admin_only)):
+    allowed = set(DEFAULT_DISPLAY.keys())
+    value = {**DEFAULT_DISPLAY, **{k: bool(v) for k, v in data.items() if k in allowed}}
+    r = requests.get(f"{SUPABASE_URL}/rest/v1/app_settings?key=eq.report_display", headers=sb_headers())
+    if r.json():
+        requests.patch(f"{SUPABASE_URL}/rest/v1/app_settings?key=eq.report_display",
+                       headers=sb_headers(), json={"value": value})
+    else:
+        requests.post(f"{SUPABASE_URL}/rest/v1/app_settings",
+                      headers=sb_headers(), json={"key": "report_display", "value": value})
+    return {"status": "saved", "settings": value}
+
+# ── HTML Daily Report ─────────────────────────────────────────────────────────
+
 @app.get("/report/{rid}", response_class=HTMLResponse)
 def html_report(rid: int):
     r = requests.get(f"{SUPABASE_URL}/rest/v1/reports?id=eq.{rid}", headers=sb_headers())
     rows = r.json()
     if not rows: return HTMLResponse("<h2>Report not found</h2>", status_code=404)
     rep = _parse(rows[0])
+    ds = _get_display_settings()
+
+    # Conditional info-grid cells
+    gps_cell = f'<div class="f"><div class="l">🌐 GPS</div><div class="v">{rep["gps"] or "-"}</div></div>' if ds.get("showGps") else ""
+    wt_cell  = f'<div class="f full"><div class="l">🔧 Work Type</div><div class="v">{", ".join(rep["workTypes"]) or "-"}</div></div>' if ds.get("showWorkTypes") else ""
+    qty_cell = f'<div class="f"><div class="l">📏 Quantity</div><div class="v">{rep["quantity"] or "-"}</div></div>' if ds.get("showQuantity") else ""
+    iss_cell = f'<div class="f"><div class="l">⚠️ Issues</div><div class="v">{rep["issues"] or "-"}</div></div>' if ds.get("showIssues") else ""
+
+    # Conditional sections
+    safety_s  = _safety_section(rep.get("safety", {}), show_labor=ds.get("showLabor", True)) if ds.get("showSafety") else ""
+    team_s    = _grid("👷 Working Team (ถ่ายรูปกองงานเรียงแถว)", rep["teamImages"]) if ds.get("showTeamImages") else ""
+    eq_s      = _grid("🔧 Tools &amp; Machines (เครื่องมือเครื่องจักรที่ใช้)", rep["equipmentImages"]) if ds.get("showEquipmentImages") else ""
+    mat_s     = _grid_cap("📦 Materials (วัสดุเข้า-ออก)", rep["materialImages"]) if ds.get("showMaterialImages") else ""
+    area_s    = _grid_cap("📍 Work Area (ถ่ายรูปพื้นที่ทำงาน ก่อนและหลัง)", rep["areaImages"]) if ds.get("showAreaImages") else ""
+    closing_s = _grid("🔒 ปิดกั้นและคลุมหลุมขุด (ก่อนออกจากสถานที่)", rep.get("closingImages", [])) if ds.get("showClosingImages") else ""
+
     html = f"""<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>LXT Report – {rep['date']}</title><style>
@@ -500,18 +565,13 @@ body{{font-family:Arial,sans-serif;background:#f0f4f8;padding:20px;color:#111}}
   <div class="f"><div class="l">📅 Date</div><div class="v">{rep['date']}</div></div>
   <div class="f"><div class="l">🏗️ Project</div><div class="v">{rep['project'] or '-'}</div></div>
   <div class="f"><div class="l">📍 Site</div><div class="v">{rep['site'] or '-'}</div></div>
-  <div class="f"><div class="l">🌐 GPS</div><div class="v">{rep['gps'] or '-'}</div></div>
-  <div class="f full"><div class="l">🔧 Work Type</div><div class="v">{', '.join(rep['workTypes']) or '-'}</div></div>
+  {gps_cell}
+  {wt_cell}
   <div class="f full"><div class="l">📝 Description</div><div class="v">{rep['description'] or '-'}</div></div>
-  <div class="f"><div class="l">📏 Quantity</div><div class="v">{rep['quantity'] or '-'}</div></div>
-  <div class="f"><div class="l">⚠️ Issues</div><div class="v">{rep['issues'] or '-'}</div></div>
+  {qty_cell}
+  {iss_cell}
 </div>
-{_safety_section(rep.get('safety', {}))}
-{_grid('👷 Working Team (ถ่ายรูปกองงานเรียงแถว)', rep['teamImages'])}
-{_grid('🔧 Tools &amp; Machines (เครื่องมือเครื่องจักรที่ใช้)', rep['equipmentImages'])}
-{_grid_cap('📦 Materials (วัสดุเข้า-ออก)', rep['materialImages'])}
-{_grid_cap('📍 Work Area (ถ่ายรูปพื้นที่ทำงาน ก่อนและหลัง)', rep['areaImages'])}
-{_grid('🔒 ปิดกั้นและคลุมหลุมขุด (ก่อนออกจากสถานที่)', rep.get('closingImages', []))}
+{safety_s}{team_s}{eq_s}{mat_s}{area_s}{closing_s}
 </div>
 <div class="foot">Generated by LXT Daily Report System — {datetime.datetime.now().strftime('%Y-%m-%d %H:%M')}</div>
 </div></body></html>"""

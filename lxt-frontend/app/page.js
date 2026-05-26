@@ -16,6 +16,12 @@ const SAFETY_ITEMS = [
 ];
 const SAFETY_DEFAULT = { toolboxTalk:false, trafficSigns:false, shoring:false, ppe:false, laborCount:"", areaSafety:false };
 
+const DEFAULT_DISPLAY = {
+  showGps:true, showWorkTypes:true, showQuantity:true, showIssues:true,
+  showSafety:true, showLabor:true, showTeamImages:true, showEquipmentImages:true,
+  showMaterialImages:true, showAreaImages:true, showClosingImages:true,
+};
+
 const ROLES = ["admin","user","viewer"];
 const ROLE_COLOR = { admin:"#dc2626", user:"#1d4ed8", viewer:"#059669" };
 const COLORS = ["#1d4ed8","#0891b2","#059669","#d97706","#dc2626","#7c3aed","#db2777","#65a30d","#ea580c","#0284c7"];
@@ -422,8 +428,9 @@ function DashboardTab({ token, onExpired }) {
 }
 
 /* ── Reports Tab ── */
-function ReportsTab({ token, role, username, onExpired }) {
+function ReportsTab({ token, role, username, onExpired, displaySettings }) {
   const api = useApi(token, onExpired);
+  const ds = {...DEFAULT_DISPLAY, ...(displaySettings||{})};
   const [reports, setReports]       = useState([]);
   const [loading, setLoading]       = useState(false);
   const [expanded, setExpanded]     = useState(null);
@@ -523,14 +530,15 @@ function ReportsTab({ token, role, username, onExpired }) {
               <span style={{fontWeight:700,fontSize:15,color:"#1d4ed8"}}>{r.project||"-"}</span>
               <div style={{display:"flex",gap:6,alignItems:"center",flexWrap:"wrap"}}>
                 {totalPics(r)>0&&<span style={{fontSize:11,background:"#dbeafe",color:"#1d4ed8",padding:"2px 7px",borderRadius:20,fontWeight:600}}>📷{totalPics(r)}</span>}
-                {safetyCount(r)!==null&&<span style={{fontSize:11,background:safetyCount(r)===SAFETY_ITEMS.length?"#dcfce7":"#fef9c3",color:safetyCount(r)===SAFETY_ITEMS.length?"#166534":"#854d0e",padding:"2px 7px",borderRadius:20,fontWeight:600}}>🦺{safetyCount(r)}/{SAFETY_ITEMS.length}</span>}
+                {ds.showSafety&&safetyCount(r)!==null&&<span style={{fontSize:11,background:safetyCount(r)===SAFETY_ITEMS.length?"#dcfce7":"#fef9c3",color:safetyCount(r)===SAFETY_ITEMS.length?"#166534":"#854d0e",padding:"2px 7px",borderRadius:20,fontWeight:600}}>🦺{safetyCount(r)}/{SAFETY_ITEMS.length}</span>}
                 {canEdit(r)&&<span style={{fontSize:11,background:"#eff6ff",color:"#1d4ed8",padding:"2px 7px",borderRadius:20,fontWeight:600}}>✏️</span>}
                 <span style={{fontSize:12,color:"#6b7280",background:"#f3f4f6",padding:"2px 8px",borderRadius:20}}>{r.date}</span>
                 <span style={{fontSize:12,color:"#9ca3af"}}>{expanded===r.id?"▲":"▼"}</span>
               </div>
             </div>
-            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"3px 16px",fontSize:13,color:"#374151",marginTop:6}}>
-              <span>📍 {r.site||"-"}</span><span>🔧 {(r.workTypes||[]).join(", ")||"-"}</span>
+            <div style={{display:"flex",gap:16,fontSize:13,color:"#374151",marginTop:6,flexWrap:"wrap"}}>
+              <span>📍 {r.site||"-"}</span>
+              {ds.showWorkTypes&&<span>🔧 {(r.workTypes||[]).join(", ")||"-"}</span>}
             </div>
           </div>
 
@@ -581,15 +589,18 @@ function ReportsTab({ token, role, username, onExpired }) {
               ) : (
                 <>
                   <p style={{margin:"0 0 8px",fontSize:13}}>📝 {r.description||"-"}</p>
-                  <div style={{display:"flex",gap:16,fontSize:13,marginBottom:10}}>
-                    <span>📏 {r.quantity||"-"}</span>
-                    {r.issues&&r.issues!=="None"&&<span style={{color:"#b45309"}}>⚠️ {r.issues}</span>}
-                  </div>
+                  {ds.showGps&&r.gps&&<p style={{fontSize:12,color:"#6b7280",margin:"0 0 8px"}}>🌐 GPS: {r.gps}</p>}
+                  {(ds.showQuantity||ds.showIssues)&&(
+                    <div style={{display:"flex",gap:16,fontSize:13,marginBottom:10,flexWrap:"wrap"}}>
+                      {ds.showQuantity&&<span>📏 {r.quantity||"-"}</span>}
+                      {ds.showIssues&&r.issues&&r.issues!=="None"&&<span style={{color:"#b45309"}}>⚠️ {r.issues}</span>}
+                    </div>
+                  )}
                 </>
               )}
 
-              {/* Safety summary (always shown) */}
-              {!editId && r.safety && Object.keys(r.safety).length>0 && (
+              {/* Safety summary */}
+              {ds.showSafety&&!editId&&r.safety&&Object.keys(r.safety).length>0&&(
                 <div style={{marginBottom:12,padding:"10px 12px",background:"#f0fdf4",borderRadius:8,border:"1px solid #86efac"}}>
                   <p style={{fontSize:12,fontWeight:700,color:"#166534",marginBottom:6}}>🦺 Safety — {safetyCount(r)}/{SAFETY_ITEMS.length} รายการ</p>
                   <div style={{display:"flex",flexWrap:"wrap",gap:4}}>
@@ -600,17 +611,17 @@ function ReportsTab({ token, role, username, onExpired }) {
                         {r.safety[item.key]?"✅":"❌"} {item.label.split("(")[0].trim()}
                       </span>
                     ))}
-                    {r.safety.laborCount&&<span style={{fontSize:11,padding:"2px 8px",borderRadius:12,background:"#dbeafe",color:"#1d4ed8"}}>👷 {r.safety.laborCount} คน</span>}
+                    {ds.showLabor&&r.safety.laborCount&&<span style={{fontSize:11,padding:"2px 8px",borderRadius:12,background:"#dbeafe",color:"#1d4ed8"}}>👷 {r.safety.laborCount} คน</span>}
                   </div>
                 </div>
               )}
 
               {/* Photo grids */}
-              <PhotoGrid label="👷 Working Team"         imgs={r.teamImages}/>
-              <PhotoGrid label="🔧 Tools & Machines"     imgs={r.equipmentImages}/>
-              <PhotoGrid label="📦 Materials"            imgs={r.materialImages} captioned={true}/>
-              <PhotoGrid label="📍 Work Area"            imgs={r.areaImages}     captioned={true}/>
-              <PhotoGrid label="🔒 ปิดกั้นหลุมขุด"      imgs={r.closingImages}/>
+              {ds.showTeamImages      &&<PhotoGrid label="👷 Working Team"       imgs={r.teamImages}/>}
+              {ds.showEquipmentImages &&<PhotoGrid label="🔧 Tools & Machines"   imgs={r.equipmentImages}/>}
+              {ds.showMaterialImages  &&<PhotoGrid label="📦 Materials"          imgs={r.materialImages} captioned={true}/>}
+              {ds.showAreaImages      &&<PhotoGrid label="📍 Work Area"          imgs={r.areaImages}     captioned={true}/>}
+              {ds.showClosingImages   &&<PhotoGrid label="🔒 ปิดกั้นหลุมขุด"    imgs={r.closingImages}/>}
 
               {/* Action buttons */}
               <div style={{display:"flex",gap:8,marginTop:10,flexWrap:"wrap"}}>
@@ -629,12 +640,24 @@ function ReportsTab({ token, role, username, onExpired }) {
 }
 
 /* ── Admin Tab ── */
-function AdminTab({ token, onExpired }) {
+function AdminTab({ token, onExpired, displaySettings, onSettingsChange }) {
   const api = useApi(token, onExpired);
   const [users, setUsers] = useState([]);
   const [form, setForm] = useState({ username:"",password:"",full_name:"",role:"user" });
   const [editing, setEditing] = useState(null);
   const [showForm, setShowForm] = useState(false);
+  const [dSettings, setDSettings] = useState({...DEFAULT_DISPLAY,...(displaySettings||{})});
+  const [settingsSaved, setSettingsSaved] = useState(false);
+
+  useEffect(()=>{ setDSettings(s=>({...s,...(displaySettings||{})})); },[displaySettings]);
+
+  const saveSettings = async () => {
+    const r = await api("/settings",{method:"PUT",body:JSON.stringify(dSettings)});
+    if (r.ok) {
+      onSettingsChange && onSettingsChange(dSettings);
+      setSettingsSaved(true); setTimeout(()=>setSettingsSaved(false),2500);
+    } else { alert("❌ บันทึกไม่สำเร็จ"); }
+  };
 
   const load = async () => { const r=await api("/users"); setUsers(await r.json()); };
   useEffect(()=>{load();},[]);
@@ -737,6 +760,62 @@ function AdminTab({ token, onExpired }) {
           🟢 <b>Viewer</b> — Read-only: view reports and export only
         </p>
       </div>
+
+      {/* ── Report Display Settings ── */}
+      <div style={{...S.card,marginTop:12,border:"2px solid #e0e7ff"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",marginBottom:14}}>
+          <div>
+            <h3 style={{margin:0,fontSize:15,fontWeight:700,color:"#374151"}}>📊 การแสดงผลรายงาน</h3>
+            <p style={{margin:"4px 0 0",fontSize:12,color:"#6b7280"}}>เลือกหัวข้อที่ต้องการแสดงในรายงาน (มีผลกับทุก User)</p>
+          </div>
+          <button onClick={saveSettings}
+            style={{...S.btn(settingsSaved?"#059669":"#1d4ed8"),whiteSpace:"nowrap",flexShrink:0}}>
+            {settingsSaved?"✅ บันทึกแล้ว":"💾 บันทึก"}
+          </button>
+        </div>
+
+        {[
+          { group:"📋 ข้อมูลทั่วไป", items:[
+            {key:"showGps",       label:"📍 GPS Location"},
+            {key:"showWorkTypes", label:"🔧 ประเภทงาน"},
+            {key:"showQuantity",  label:"📏 ปริมาณงาน"},
+            {key:"showIssues",    label:"⚠️ ปัญหา/อุปสรรค"},
+          ]},
+          { group:"🦺 Safety", items:[
+            {key:"showSafety", label:"🦺 Safety Checklist"},
+            {key:"showLabor",  label:"👷 จำนวนคนงาน"},
+          ]},
+          { group:"📸 รูปภาพ", items:[
+            {key:"showTeamImages",      label:"👷 รูปทีมงาน"},
+            {key:"showEquipmentImages", label:"🔧 รูปเครื่องจักร"},
+            {key:"showMaterialImages",  label:"📦 รูปวัสดุ"},
+            {key:"showAreaImages",      label:"📍 รูปพื้นที่ทำงาน"},
+            {key:"showClosingImages",   label:"🔒 รูปปิดกั้นหลุม"},
+          ]},
+        ].map(({group,items})=>(
+          <div key={group} style={{marginBottom:14}}>
+            <p style={{fontSize:12,fontWeight:700,color:"#374151",margin:"0 0 8px",textTransform:"uppercase",letterSpacing:.5}}>{group}</p>
+            <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:7}}>
+              {items.map(({key,label})=>{
+                const on = dSettings[key]!==false;
+                return (
+                  <div key={key} onClick={()=>setDSettings(s=>({...s,[key]:!s[key]}))}
+                    style={{display:"flex",alignItems:"center",justifyContent:"space-between",
+                      background:on?"#f0fdf4":"#f9fafb",border:`1px solid ${on?"#86efac":"#e5e7eb"}`,
+                      borderRadius:8,padding:"9px 11px",cursor:"pointer",userSelect:"none",transition:"all .15s"}}>
+                    <span style={{fontSize:12,color:on?"#166534":"#6b7280",fontWeight:on?600:400}}>{label}</span>
+                    <div style={{width:38,height:20,borderRadius:10,background:on?"#16a34a":"#d1d5db",
+                      position:"relative",flexShrink:0,transition:"background .2s"}}>
+                      <div style={{width:14,height:14,borderRadius:7,background:"white",position:"absolute",
+                        top:3,left:on?21:3,transition:"left .2s",boxShadow:"0 1px 3px rgba(0,0,0,.25)"}}/>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -748,6 +827,13 @@ export default function Home() {
   });
   const [tab, setTab] = useState("submit");
   const [safety, setSafety] = useState(SAFETY_DEFAULT);
+  const [displaySettings, setDisplaySettings] = useState(DEFAULT_DISPLAY);
+
+  useEffect(()=>{
+    if (!auth?.token) return;
+    fetch(`${API}/settings`,{headers:{"Authorization":`Bearer ${auth.token}`}})
+      .then(r=>r.ok?r.json():{}).then(d=>setDisplaySettings(s=>({...s,...d}))).catch(()=>{});
+  },[auth?.token]);
 
   const handleLogin = (data) => {
     localStorage.setItem("lxt_auth", JSON.stringify(data));
@@ -798,8 +884,8 @@ export default function Home() {
           {tab==="submit"    && <SubmitTab    token={auth.token} onExpired={logout} safety={safety} setSafety={setSafety}/>}
           {tab==="safety"    && <SafetyTab    safety={safety} setSafety={setSafety}/>}
           {tab==="dashboard" && <DashboardTab token={auth.token} onExpired={logout}/>}
-          {tab==="view"      && <ReportsTab   token={auth.token} role={auth.role} username={auth.username} onExpired={logout}/>}
-          {tab==="admin"     && <AdminTab     token={auth.token} onExpired={logout}/>}
+          {tab==="view"      && <ReportsTab   token={auth.token} role={auth.role} username={auth.username} onExpired={logout} displaySettings={displaySettings}/>}
+          {tab==="admin"     && <AdminTab     token={auth.token} onExpired={logout} displaySettings={displaySettings} onSettingsChange={setDisplaySettings}/>}
         </div>
       </div>
     </div>
