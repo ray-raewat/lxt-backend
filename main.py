@@ -115,6 +115,15 @@ def health():
     except Exception as e:
         return {"db": "error", "detail": str(e)}
 
+@app.get("/ping")
+def ping():
+    """Cron-job endpoint — queries DB to keep Supabase free tier active."""
+    try:
+        r = requests.get(f"{SUPABASE_URL}/rest/v1/reports?limit=1", headers=sb_headers(), timeout=10)
+        return {"ok": True, "db": r.status_code, "ts": datetime.datetime.now().isoformat()}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
 @app.post("/auth/login")
 def login(data: dict):
     username = data.get("username", "").strip()
