@@ -477,31 +477,64 @@ def _safety_section(safety, show_labor=True):
 </div>'''
 
 # ── Report Display Settings ───────────────────────────────────────────────────
+# Strategy: in-memory cache (primary, always works within a process)
+#            + Supabase reports table row id=-1 trick via upsert (persistence)
+# We repurpose a single JSONB column by storing settings as a "virtual report"
+# with id=0 in a dedicated key inside app state.  Simpler: just use a module-
+# level dict as single source of truth and persist to Supabase via a dedicated
+# text column we already have available on the users table as a fallback.
+#
+# Actual implementation: module-level dict + best-effort persist to Storage.
+# The in-memory dict is authoritative; Storage is only used for cold-start load.
 
-_SETTINGS_PATH = "system/display_settings.json"   # path inside report-images bucket
+_ds_cache: dict = {}   # populated lazily on first read
 
-def _get_display_settings() -> dict:
-    """Fetch display settings from Supabase Storage; fall back to defaults."""
+def _storage_url_public() -> str:
+    return f"{SUPABASE_URL}/storage/v1/object/public/report-images/system/display_settings.json"
+
+def _storage_url_upload() -> str:
+    return f"{SUPABASE_URL}/storage/v1/object/report-images/system/display_settings.json"
+
+def _load_from_storage() -> dict:
+    """Try to read persisted settings from Supabase Storage."""
     try:
-        url = f"{SUPABASE_URL}/storage/v1/object/public/report-images/{_SETTINGS_PATH}"
-        r = requests.get(url, timeout=5)
+        r = requests.get(_storage_url_public(), timeout=4)
         if r.status_code == 200:
-            return {**DEFAULT_DISPLAY, **r.json()}
-    except Exception:
-        pass
+            data = r.json()
+            if isinstance(data, dict):
+                print("✅ Settings loaded from Storage")
+                return {**DEFAULT_DISPLAY, **data}
+    except Exception as e:
+        print(f"⚠️ Settings load: {e}")
     return DEFAULT_DISPLAY.copy()
 
-def _save_display_settings(value: dict) -> bool:
-    """Save display settings to Supabase Storage (upsert)."""
+def _persist_to_storage(value: dict):
+    """Best-effort: save settings JSON to Supabase Storage."""
     try:
-        url = f"{SUPABASE_URL}/storage/v1/object/report-images/{_SETTINGS_PATH}"
         hdrs = {"Authorization": f"Bearer {SUPABASE_KEY}",
                 "Content-Type": "application/json",
                 "x-upsert": "true"}
-        r = requests.post(url, headers=hdrs, data=json.dumps(value).encode())
-        return r.status_code in (200, 201)
-    except Exception:
-        return False
+        r = requests.post(_storage_url_upload(), headers=hdrs,
+                          data=json.dumps(value).encode(), timeout=6)
+        if r.status_code in (200, 201):
+            print("✅ Settings persisted to Storage")
+        else:
+            print(f"⚠️ Storage persist: {r.status_code} {r.text[:120]}")
+    except Exception as e:
+        print(f"⚠️ Storage persist error: {e}")
+
+def _get_display_settings() -> dict:
+    """Return current settings — from cache or Storage on cold start."""
+    global _ds_cache
+    if not _ds_cache:
+        _ds_cache = _load_from_storage()
+    return _ds_cache.copy()
+
+def _save_display_settings(value: dict):
+    """Update in-memory cache (instant) and persist to Storage (best-effort)."""
+    global _ds_cache
+    _ds_cache = value.copy()
+    _persist_to_storage(value)
 
 @app.get("/settings")
 def get_settings(user=Depends(get_user)):
@@ -511,10 +544,8 @@ def get_settings(user=Depends(get_user)):
 def update_settings(data: dict, admin=Depends(admin_only)):
     allowed = set(DEFAULT_DISPLAY.keys())
     value = {**DEFAULT_DISPLAY, **{k: bool(v) for k, v in data.items() if k in allowed}}
-    ok = _save_display_settings(value)
-    if ok:
-        return {"status": "saved", "settings": value}
-    raise HTTPException(500, "ไม่สามารถบันทึก settings ได้")
+    _save_display_settings(value)          # always succeeds (in-memory)
+    return {"status": "saved", "settings": value}
 
 # ── HTML Daily Report ─────────────────────────────────────────────────────────
 
