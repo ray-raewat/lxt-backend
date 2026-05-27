@@ -478,17 +478,30 @@ def _safety_section(safety, show_labor=True):
 
 # ── Report Display Settings ───────────────────────────────────────────────────
 
+_SETTINGS_PATH = "system/display_settings.json"   # path inside report-images bucket
+
 def _get_display_settings() -> dict:
-    """Fetch current display settings from Supabase; fall back to defaults."""
+    """Fetch display settings from Supabase Storage; fall back to defaults."""
     try:
-        r = requests.get(f"{SUPABASE_URL}/rest/v1/app_settings?key=eq.report_display",
-                         headers=sb_headers(), timeout=5)
-        rows = r.json()
-        if rows:
-            return {**DEFAULT_DISPLAY, **rows[0].get("value", {})}
+        url = f"{SUPABASE_URL}/storage/v1/object/public/report-images/{_SETTINGS_PATH}"
+        r = requests.get(url, timeout=5)
+        if r.status_code == 200:
+            return {**DEFAULT_DISPLAY, **r.json()}
     except Exception:
         pass
     return DEFAULT_DISPLAY.copy()
+
+def _save_display_settings(value: dict) -> bool:
+    """Save display settings to Supabase Storage (upsert)."""
+    try:
+        url = f"{SUPABASE_URL}/storage/v1/object/report-images/{_SETTINGS_PATH}"
+        hdrs = {"Authorization": f"Bearer {SUPABASE_KEY}",
+                "Content-Type": "application/json",
+                "x-upsert": "true"}
+        r = requests.post(url, headers=hdrs, data=json.dumps(value).encode())
+        return r.status_code in (200, 201)
+    except Exception:
+        return False
 
 @app.get("/settings")
 def get_settings(user=Depends(get_user)):
@@ -498,14 +511,10 @@ def get_settings(user=Depends(get_user)):
 def update_settings(data: dict, admin=Depends(admin_only)):
     allowed = set(DEFAULT_DISPLAY.keys())
     value = {**DEFAULT_DISPLAY, **{k: bool(v) for k, v in data.items() if k in allowed}}
-    r = requests.get(f"{SUPABASE_URL}/rest/v1/app_settings?key=eq.report_display", headers=sb_headers())
-    if r.json():
-        requests.patch(f"{SUPABASE_URL}/rest/v1/app_settings?key=eq.report_display",
-                       headers=sb_headers(), json={"value": value})
-    else:
-        requests.post(f"{SUPABASE_URL}/rest/v1/app_settings",
-                      headers=sb_headers(), json={"key": "report_display", "value": value})
-    return {"status": "saved", "settings": value}
+    ok = _save_display_settings(value)
+    if ok:
+        return {"status": "saved", "settings": value}
+    raise HTTPException(500, "ไม่สามารถบันทึก settings ได้")
 
 # ── HTML Daily Report ─────────────────────────────────────────────────────────
 
