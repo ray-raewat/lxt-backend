@@ -181,6 +181,23 @@ def delete_user(uid: int, admin=Depends(admin_only)):
 
 # ── Image Upload ──────────────────────────────────────────────────────────────
 
+@app.get("/storage-check")
+def storage_check():
+    """Diagnose Supabase Storage — bucket list and upload test."""
+    hdrs = {"Authorization": f"Bearer {SUPABASE_KEY}", "apikey": SUPABASE_KEY}
+    try:
+        br = requests.get(f"{SUPABASE_URL}/storage/v1/bucket", headers=hdrs, timeout=8)
+        buckets = br.json() if br.status_code == 200 else []
+        names = [b.get("name") for b in buckets] if isinstance(buckets, list) else []
+        return {
+            "key_set": bool(SUPABASE_KEY),
+            "buckets_status": br.status_code,
+            "buckets": names,
+            "report_images_ok": "report-images" in names,
+        }
+    except Exception as e:
+        return {"error": str(e), "key_set": bool(SUPABASE_KEY)}
+
 @app.post("/upload-image")
 async def upload_image(file: UploadFile = File(...), category: str = Form(...), user=Depends(get_user)):
     content = await file.read()
@@ -190,7 +207,9 @@ async def upload_image(file: UploadFile = File(...), category: str = Form(...), 
         headers={"Authorization": f"Bearer {SUPABASE_KEY}", "Content-Type": "image/jpeg"}, data=content)
     if r.status_code in (200, 201):
         return {"url": f"{SUPABASE_URL}/storage/v1/object/public/report-images/{filename}"}
-    return {"error": r.text}
+    err = r.text or f"HTTP {r.status_code}"
+    print(f"⚠️ Upload failed {r.status_code}: {err[:200]}")
+    return {"error": err}
 
 # ── Reports CRUD ──────────────────────────────────────────────────────────────
 
