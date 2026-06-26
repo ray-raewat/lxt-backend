@@ -183,20 +183,21 @@ def delete_user(uid: int, admin=Depends(admin_only)):
 
 @app.get("/test-upload")
 def test_upload():
-    """Upload a 1-pixel JPEG to Storage and report the result."""
-    import base64
-    tiny_jpg = base64.b64decode(
-        "/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDB"
-        "kSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAAR"
-        "CAABAAEDASIAAhEBAxEB/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAA"
-        "AAAAAAAAAAAAAP/xAAUAQEAAAAAAAAAAAAAAAAAAAAA/8QAFBEBAAAAAAAAAAAAA"
-        "AAAAAAAP/aAAwDAQACEQMRAD8AJQAB/9k=")
+    """Upload a tiny test file to Supabase Storage and report the result."""
+    # Minimal valid JPEG header bytes (1×1 white pixel)
+    tiny = (b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00"
+            b"\xff\xdb\x00C\x00\x08\x06\x06\x07\x06\x05\x08\x07\x07\x07\t\t"
+            b"\x08\n\x0c\x14\r\x0c\x0b\x0b\x0c\x19\x12\x13\x0f\x14\x1d\x1a"
+            b"\x1f\x1e\x1d\x1a\x1c\x1c $.' \",#\x1c\x1c(7),01444\x1f'9=82<.342\x1e"
+            b"\xff\xd9")
     filename = "test/ping_test.jpg"
-    r = requests.post(f"{SUPABASE_URL}/storage/v1/object/report-images/{filename}",
-        headers={"Authorization": f"Bearer {SUPABASE_KEY}", "Content-Type": "image/jpeg",
-                 "x-upsert": "true"}, data=tiny_jpg)
+    r = requests.post(
+        f"{SUPABASE_URL}/storage/v1/object/report-images/{filename}",
+        headers={"Authorization": f"Bearer {SUPABASE_KEY}",
+                 "Content-Type": "image/jpeg", "x-upsert": "true"},
+        data=tiny, timeout=10)
     return {"upload_status": r.status_code, "response": r.text[:300],
-            "url": f"{SUPABASE_URL}/storage/v1/object/public/report-images/{filename}" if r.status_code in (200,201) else None}
+            "key_set": bool(SUPABASE_KEY)}
 
 @app.get("/storage-check")
 def storage_check():
