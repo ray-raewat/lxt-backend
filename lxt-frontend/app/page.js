@@ -37,17 +37,22 @@ const S = {
 
 /* ── Image compression ── */
 async function compress(file, maxW=1200, q=0.75) {
-  return new Promise(res => {
-    const img = new Image(), url = URL.createObjectURL(file);
+  return new Promise((res) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
     img.onload = () => {
-      let {width:w,height:h} = img;
-      if (w>maxW){h=Math.round(h*maxW/w);w=maxW;}
-      const c = document.createElement("canvas"); c.width=w; c.height=h;
-      c.getContext("2d").drawImage(img,0,0,w,h);
-      URL.revokeObjectURL(url);
-      c.toBlob(res,"image/jpeg",q);
+      try {
+        let {width:w, height:h} = img;
+        if (w > maxW) { h = Math.round(h*maxW/w); w = maxW; }
+        const c = document.createElement("canvas");
+        c.width = w; c.height = h;
+        c.getContext("2d").drawImage(img, 0, 0, w, h);
+        URL.revokeObjectURL(url);
+        c.toBlob(blob => res(blob || file), "image/jpeg", q);
+      } catch(e) { URL.revokeObjectURL(url); res(file); }
     };
-    img.src=url;
+    img.onerror = () => { URL.revokeObjectURL(url); res(file); };
+    img.src = url;
   });
 }
 
@@ -89,6 +94,12 @@ function ImageUploader({ label, category, images, setImages, token, showCaption=
         fd.append("file", blob, "photo.jpg");
         fd.append("category", category);
         const r = await fetch(`${API}/upload-image`, { method:"POST", headers:{ Authorization:`Bearer ${token}` }, body:fd });
+        if (!r.ok) {
+          const txt = await r.text().catch(() => "");
+          let msg = txt.slice(0,200) || `HTTP ${r.status}`;
+          try { const j=JSON.parse(txt); msg = j.error||j.detail||msg; } catch{}
+          throw new Error(msg);
+        }
         const d = await r.json();
         if (!d.url) throw new Error(d.error||"Upload failed");
         return showCaption ? {url: d.url, caption: ""} : d.url;
