@@ -76,7 +76,7 @@ function useApi(token, onExpired) {
 
 /* ── ImageUploader ── */
 // showCaption=true → images stored as [{url,caption}]; false → plain URL strings
-function ImageUploader({ label, category, images, setImages, token, showCaption=false }) {
+function ImageUploader({ label, category, images, setImages, token, onExpired, showCaption=false }) {
   const camRef = useRef(), galRef = useRef();
   const [uploading, setUploading] = useState(false);
 
@@ -94,6 +94,12 @@ function ImageUploader({ label, category, images, setImages, token, showCaption=
         fd.append("file", blob, "photo.jpg");
         fd.append("category", category);
         const r = await fetch(`${API}/upload-image`, { method:"POST", headers:{ Authorization:`Bearer ${token}` }, body:fd });
+        if (r.status === 401) {
+          const detail = await r.json().then(d=>d.detail).catch(()=>"Session expired");
+          alert("⚠️ " + detail + "\nกรุณา Login ใหม่อีกครั้ง");
+          if (onExpired) onExpired();
+          throw new Error("session_expired");
+        }
         if (!r.ok) {
           const txt = await r.text().catch(() => "");
           let msg = txt.slice(0,200) || `HTTP ${r.status}`;
@@ -105,7 +111,7 @@ function ImageUploader({ label, category, images, setImages, token, showCaption=
         return showCaption ? {url: d.url, caption: ""} : d.url;
       }));
       setImages(p => [...p, ...newItems]);
-    } catch(e) { alert("❌ Upload error: "+e.message); }
+    } catch(e) { if (e.message !== "session_expired") alert("❌ Upload error: "+e.message); }
     setUploading(false);
   };
 
@@ -346,11 +352,11 @@ function SubmitTab({ token, onExpired, safety, setSafety }) {
       </div>
       <div style={{borderTop:"2px solid #e5e7eb",paddingTop:16,marginTop:4}}>
         <p style={{fontWeight:700,color:"#1e3a5f",marginBottom:14,fontSize:14}}>📷 Photo (ถ่ายรูปรายงาน) — Auto-compressed</p>
-        <ImageUploader label="👷 Working Team (ถ่ายรูปกองงานเรียงแถว)"              category="team"     images={teamImages}     setImages={setTeamImages}     token={token}/>
-        <ImageUploader label="🔧 Tools & Machines (ถ่ายรูปเครื่องมือเครื่องจักรที่ใช้)" category="equip"    images={equipImages}    setImages={setEquipImages}    token={token}/>
-        <ImageUploader label="📦 Material (ถ่ายรูปวัสดุเข้า-ออก)"                   category="material" images={materialImages} setImages={setMaterialImages} token={token} showCaption={true}/>
-        <ImageUploader label="📍 Work Area (ถ่ายรูปพื้นที่ทำงาน ก่อนและหลัง)"       category="area"     images={areaImages}     setImages={setAreaImages}     token={token} showCaption={true}/>
-        <ImageUploader label="🔒 ปิดกั้นและคลุมหลุมขุดทั้งหมด ก่อนออกจากสถานที่"    category="closing"  images={closingImages}  setImages={setClosingImages}  token={token}/>
+        <ImageUploader label="👷 Working Team (ถ่ายรูปกองงานเรียงแถว)"              category="team"     images={teamImages}     setImages={setTeamImages}     token={token} onExpired={onExpired}/>
+        <ImageUploader label="🔧 Tools & Machines (ถ่ายรูปเครื่องมือเครื่องจักรที่ใช้)" category="equip"    images={equipImages}    setImages={setEquipImages}    token={token} onExpired={onExpired}/>
+        <ImageUploader label="📦 Material (ถ่ายรูปวัสดุเข้า-ออก)"                   category="material" images={materialImages} setImages={setMaterialImages} token={token} onExpired={onExpired} showCaption={true}/>
+        <ImageUploader label="📍 Work Area (ถ่ายรูปพื้นที่ทำงาน ก่อนและหลัง)"       category="area"     images={areaImages}     setImages={setAreaImages}     token={token} onExpired={onExpired} showCaption={true}/>
+        <ImageUploader label="🔒 ปิดกั้นและคลุมหลุมขุดทั้งหมด ก่อนออกจากสถานที่"    category="closing"  images={closingImages}  setImages={setClosingImages}  token={token} onExpired={onExpired}/>
       </div>
       <button onClick={submit} disabled={loading} style={{...S.btn(loading?"#9ca3af":"#1d4ed8",true),marginTop:8,cursor:loading?"not-allowed":"pointer"}}>
         {loading?"⏳ กำลังส่ง...":"🚀 Submit Daily Report"}
