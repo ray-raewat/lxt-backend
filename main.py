@@ -181,40 +181,6 @@ def delete_user(uid: int, admin=Depends(admin_only)):
 
 # ── Image Upload ──────────────────────────────────────────────────────────────
 
-@app.get("/test-upload")
-def test_upload():
-    """Upload a tiny test file to Supabase Storage and report the result."""
-    # Minimal valid JPEG header bytes (1×1 white pixel)
-    tiny = (b"\xff\xd8\xff\xe0\x00\x10JFIF\x00\x01\x01\x00\x00\x01\x00\x01\x00\x00"
-            b"\xff\xdb\x00C\x00\x08\x06\x06\x07\x06\x05\x08\x07\x07\x07\t\t"
-            b"\x08\n\x0c\x14\r\x0c\x0b\x0b\x0c\x19\x12\x13\x0f\x14\x1d\x1a"
-            b"\x1f\x1e\x1d\x1a\x1c\x1c $.' \",#\x1c\x1c(7),01444\x1f'9=82<.342\x1e"
-            b"\xff\xd9")
-    filename = "test/ping_test.jpg"
-    r = requests.post(
-        f"{SUPABASE_URL}/storage/v1/object/report-images/{filename}",
-        headers={"Authorization": f"Bearer {SUPABASE_KEY}",
-                 "Content-Type": "image/jpeg", "x-upsert": "true"},
-        data=tiny, timeout=10)
-    return {"upload_status": r.status_code, "response": r.text[:300],
-            "key_set": bool(SUPABASE_KEY)}
-
-@app.get("/storage-check")
-def storage_check():
-    """Diagnose Supabase Storage — bucket list and upload test."""
-    hdrs = {"Authorization": f"Bearer {SUPABASE_KEY}", "apikey": SUPABASE_KEY}
-    try:
-        br = requests.get(f"{SUPABASE_URL}/storage/v1/bucket", headers=hdrs, timeout=8)
-        buckets = br.json() if br.status_code == 200 else []
-        names = [b.get("name") for b in buckets] if isinstance(buckets, list) else []
-        return {
-            "key_set": bool(SUPABASE_KEY),
-            "buckets_status": br.status_code,
-            "buckets": names,
-            "report_images_ok": "report-images" in names,
-        }
-    except Exception as e:
-        return {"error": str(e), "key_set": bool(SUPABASE_KEY)}
 
 @app.post("/upload-image")
 async def upload_image(file: UploadFile = File(...), category: str = Form(...), user=Depends(get_user)):
