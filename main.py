@@ -181,6 +181,23 @@ def delete_user(uid: int, admin=Depends(admin_only)):
 
 # ── Image Upload ──────────────────────────────────────────────────────────────
 
+@app.get("/test-upload")
+def test_upload():
+    """Upload a 1-pixel JPEG to Storage and report the result."""
+    import base64
+    tiny_jpg = base64.b64decode(
+        "/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDB"
+        "kSEw8UHRofHh0aHBwgJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPC4zNDL/wAAR"
+        "CAABAAEDASIAAhEBAxEB/8QAFAABAAAAAAAAAAAAAAAAAAAACf/EABQQAQAAAAAA"
+        "AAAAAAAAAAAAAP/xAAUAQEAAAAAAAAAAAAAAAAAAAAA/8QAFBEBAAAAAAAAAAAAA"
+        "AAAAAAAP/aAAwDAQACEQMRAD8AJQAB/9k=")
+    filename = "test/ping_test.jpg"
+    r = requests.post(f"{SUPABASE_URL}/storage/v1/object/report-images/{filename}",
+        headers={"Authorization": f"Bearer {SUPABASE_KEY}", "Content-Type": "image/jpeg",
+                 "x-upsert": "true"}, data=tiny_jpg)
+    return {"upload_status": r.status_code, "response": r.text[:300],
+            "url": f"{SUPABASE_URL}/storage/v1/object/public/report-images/{filename}" if r.status_code in (200,201) else None}
+
 @app.get("/storage-check")
 def storage_check():
     """Diagnose Supabase Storage — bucket list and upload test."""
