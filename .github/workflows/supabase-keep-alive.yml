@@ -2,30 +2,29 @@ name: Keep Supabase Project Active
 
 on:
   schedule:
-    # Run daily at 9 AM (UTC)
-    - cron: '0 9 * * *'
+    - cron: '0 1 * * *'   # 08:00 Thailand time (UTC+7)
+    - cron: '0 13 * * *'  # 20:00 Thailand time (UTC+7)
   workflow_dispatch:
 
 jobs:
-  test-supabase:
+  ping-supabase:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Test Supabase API Connection
+      - name: Ping Supabase directly
         run: |
-          echo "Testing Supabase project connectivity..."
-
-          RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
-            -X GET "https://woicdagfrkmtxhmqteyy.supabase.co/rest/v1/" \
-            -H "apikey: ${{ secrets.SUPABASE_ANON_KEY }}" \
-            -H "Content-Type: application/json")
-
-          echo "Response Code: $RESPONSE"
-
-          if [ "$RESPONSE" -eq 200 ] || [ "$RESPONSE" -eq 401 ]; then
-            echo "Success: Supabase API is responsive"
-            exit 0
-          else
-            echo "Warning: Unexpected response code $RESPONSE"
+          CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://woicdagfrkmtxhmqteyy.supabase.co/rest/v1/" \
+            --max-time 15)
+          echo "Supabase HTTP: $CODE"
+          if [ "$CODE" -ge 500 ]; then
+            echo "ERROR: Supabase returned $CODE — project may be paused"
             exit 1
           fi
+          echo "OK: Supabase active (HTTP $CODE)"
+
+      - name: Ping Render backend (wake up if sleeping)
+        run: |
+          CODE=$(curl -s -o /dev/null -w "%{http_code}" \
+            "https://lxt-backend.onrender.com/ping" \
+            --max-time 60)
+          echo "Render HTTP: $CODE"
