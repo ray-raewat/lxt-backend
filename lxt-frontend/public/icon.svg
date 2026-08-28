@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="80" fill="#1d4ed8"/>
+  <text x="256" y="200" font-family="Arial,sans-serif" font-size="130" font-weight="900" fill="white" text-anchor="middle" dominant-baseline="middle">LXT</text>
+  <text x="256" y="340" font-family="Arial,sans-serif" font-size="72" font-weight="700" fill="#93c5fd" text-anchor="middle" dominant-baseline="middle">DPR</text>
+</svg>
