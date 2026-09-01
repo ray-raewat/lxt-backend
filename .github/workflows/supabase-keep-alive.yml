@@ -26,5 +26,6 @@ jobs:
         run: |
           CODE=$(curl -s -o /dev/null -w "%{http_code}" \
             "https://lxt-backend.onrender.com/ping" \
-            --max-time 60)
-          echo "Render HTTP: $CODE"
+            --max-time 60) || true
+          echo "Render HTTP: ${CODE:-timeout}"
+          echo "Note: timeout is normal when Render is sleeping"
